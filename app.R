@@ -1,6 +1,5 @@
 # ---- auto-install and load libraries ----
 required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet")
-
 new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
 
 if (length(new_packages)) {
@@ -8,7 +7,6 @@ if (length(new_packages)) {
   install.packages(new_packages, repos = "https://cran.rstudio.com/")
 }
 
-# ---- load libraries ----
 library(shiny)
 library(shinydashboard)
 library(readxl)
@@ -52,6 +50,7 @@ load_bird_data <- function(path, region_name) {
 south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
 north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
 
+# 1. Load Current Year Data
 master_current_data <- bind_rows(
   load_bird_data(find_file_in_dropbox(south_file), "south"),
   load_bird_data(find_file_in_dropbox(north_file), "north")
@@ -65,35 +64,42 @@ master_current_data <- bind_rows(
                          "coati" ~ "Coal Tit",
                          "greti" ~ "Great Tit",
                          .default = species),
-    
     `Lay Date` = if_else(is.na(latest_fed), "", 
                          format(as.Date(round(latest_fed) - 1, origin = str_c(current_year, "-01-01")), "%d %B %Y")),
-    
     `Hatch Date` = if_else(is.na(`day hatching first observed`), "", 
                            format(as.Date(round(`day hatching first observed`) - 1, origin = str_c(current_year, "-01-01")), "%d %B %Y")),
-    
     `Clutch Size` = cs,
     `Brood Size` = v1alive,
     `Number Fledged` = suc,
     lay_date_numeric = latest_fed
   )
 
-coords_data <- read_csv(find_file_in_dropbox("nest_coords.csv")) %>%
+# 2. Create a Site-to-Region mapping from current data to use for History
+site_region_map <- master_current_data %>%
+  select(Site, Region) %>%
+  distinct()
+
+# 3. Load Coordinates
+coords_data <- read_csv(find_file_in_dropbox("nest_coords.csv"), show_col_types = FALSE) %>%
   mutate(Box = as.character(nest_number)) %>%
   select(site, Box, lon, lat)
 
 master_current_data <- master_current_data %>%
   left_join(coords_data, by = c("Site" = "site", "Box" = "Box"))
 
-historic_data <- read_csv(find_file_in_dropbox("Bird_Phenology.csv")) %>%
+# 4. Load Historical Data and assign Regions based on Site mapping
+historic_data <- read_csv(find_file_in_dropbox("Bird_Phenology.csv"), show_col_types = FALSE) %>%
   mutate(
+    Site = site,
     Species = case_match(species,
                          "bluti" ~ "Blue Tit",
                          "coati" ~ "Coal Tit",
                          "greti" ~ "Great Tit",
                          .default = species),
     lay_date_historic = coalesce(fed, latestfed)
-  )
+  ) %>%
+  left_join(site_region_map, by = "Site") %>%
+  mutate(Region = replace_na(Region, "Unknown"))
 
 # ---- ui ----
 ui <- dashboardPage(
@@ -154,7 +160,8 @@ server <- function(input, output, session) {
   
   filtered_historic <- reactive({
     data <- historic_data
-    if (input$site_filter != "All")   data <- data %>% filter(site == input$site_filter)
+    if (input$region_filter != "All")  data <- data %>% filter(Region == input$region_filter)
+    if (input$site_filter != "All")    data <- data %>% filter(Site == input$site_filter)
     if (input$species_filter != "All") data <- data %>% filter(Species == input$species_filter)
     data
   })
@@ -193,7 +200,7 @@ server <- function(input, output, session) {
     valid_data <- filtered_historic() %>% filter(!is.na(lay_date_historic))
     n_count <- nrow(valid_data)
     hist_ord <- mean(valid_data$lay_date_historic, na.rm = TRUE)
-    val_display <- if(n_count == 0) "N/A" else format(as.Date(round(hist_ord)-1, origin=str_c(current_year, "-01-01")), "%d %B")
+    val_display <- if(n_count == 0 || is.nan(hist_ord)) "N/A" else format(as.Date(round(hist_ord)-1, origin=str_c(current_year, "-01-01")), "%d %B")
     valueBox(val_display, paste0("Historic Avg Lay Date (n = ", n_count, ")"), icon = icon("history"), color = "teal")
   })
   
@@ -201,7 +208,7 @@ server <- function(input, output, session) {
     valid_data <- filtered_historic() %>% filter(!is.na(cs))
     n_count <- nrow(valid_data)
     val <- mean(valid_data$cs, na.rm = TRUE)
-    val_display <- if(n_count == 0) "N/A" else round(val, 1)
+    val_display <- if(n_count == 0 || is.nan(val)) "N/A" else round(val, 1)
     valueBox(val_display, paste0("Historic Avg Clutch Size (n = ", n_count, ")"), icon = icon("history"), color = "maroon")
   })
   
