@@ -1,3 +1,13 @@
+# ---- auto-install and load libraries ----
+required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet")
+
+new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
+
+if (length(new_packages)) {
+  message("Installing missing packages: ", paste(new_packages, collapse = ", "))
+  install.packages(new_packages, repos = "https://cran.rstudio.com/")
+}
+
 # ---- load libraries ----
 library(shiny)
 library(shinydashboard)
