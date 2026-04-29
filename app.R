@@ -82,7 +82,7 @@ server <- function(input, output, session) {
   vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL)
   
   load_all_data <- function() {
-    withProgress(message = 'Syncing Dropbox...', value = 0.5, {
+    withProgress(message = 'Updating from Dropbox...', value = 0.5, {
       
       # 1. Load Current Year Data
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
@@ -127,7 +127,6 @@ server <- function(input, output, session) {
                     Wing = wing, Weight = mass, Ringer = ringer, Species = "Blue Tit", Fledged = NA_character_)
         
         nestlings <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
-          filter(ring != "unringed") %>%
           mutate(fledged = if_else(fledged == 1, "Yes", "No")) %>%
           transmute(Ring = ring, Date = as.Date(round(v2date) - 1, origin = str_c(year, "-01-01")),
                     Site = site, Box = as.character(box), Age = "1", Sex = NA_character_, 
@@ -216,7 +215,7 @@ server <- function(input, output, session) {
     valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", n_count, ")"), icon = icon("history"), color = "maroon")
   })
   
-  # --- Tables & Map ---
+  # --- Tables ---
   output$bird_table <- renderDT({
     display_df <- filtered_all() %>% 
       select(Region, Site, Box, Species, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
@@ -238,19 +237,28 @@ server <- function(input, output, session) {
                              columnDefs = list(list(visible = FALSE, targets = sort_col_idx))))
   })
   
+  # --- Map (Original Loading Logic) ---
   output$nest_map <- renderLeaflet({
-    leaflet() %>% addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
-      addLayersControl(baseGroups = c("Satellite", "Street Map"), options = layersControlOptions(collapsed = FALSE)) %>%
-      addProviderTiles(providers$OpenStreetMap, group = "Street Map")
-  })
-  
-  observe({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
-    leafletProxy("nest_map", data = map_df) %>% clearMarkers() %>%
-      addCircleMarkers(lng = ~lon, lat = ~lat, radius = 7, color = "white", weight = 1,
-                       fillColor = ~if_else(!is.na(n1), "#2196F3", "#F44336"), fillOpacity = 0.8,
-                       popup = ~paste0("<b>Box ID:</b> ", sitebox, "<br><b>Status:</b> ", if_else(!is.na(n1), "Occupied", "Empty"), "<br><b>Species:</b> ", replace_na(as.character(Species), ""), "<br><b>Lay Date:</b> ", replace_na(as.character(`Lay Date`), ""), "<br><b>Clutch Size:</b> ", replace_na(as.character(`Clutch Size`), ""), "<br><b>Hatch Date:</b> ", replace_na(as.character(`Hatch Date`), ""), "<br><b>Brood Size:</b> ", replace_na(as.character(`Brood Size`), ""), "<br><b>Number Fledged:</b> ", replace_na(as.character(`Number Fledged`), "")),
-                       label = ~sitebox)
+    if(nrow(map_df) == 0) return(NULL)
+    
+    leaflet(map_df) %>%
+      addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+      addProviderTiles(providers$OpenStreetMap, group = "Street Map") %>%
+      addCircleMarkers(
+        lng = ~lon, lat = ~lat, radius = 7, color = "white", weight = 1,
+        fillColor = ~if_else(!is.na(n1), "#2196F3", "#F44336"), fillOpacity = 0.8,
+        popup = ~paste0("<b>Box ID:</b> ", sitebox, 
+                        "<br><b>Status:</b> ", if_else(!is.na(n1), "Occupied", "Empty"), 
+                        "<br><b>Species:</b> ", replace_na(as.character(Species), ""), 
+                        "<br><b>Lay Date:</b> ", replace_na(as.character(`Lay Date`), ""), 
+                        "<br><b>Clutch Size:</b> ", replace_na(as.character(`Clutch Size`), ""), 
+                        "<br><b>Hatch Date:</b> ", replace_na(as.character(`Hatch Date`), ""), 
+                        "<br><b>Brood Size:</b> ", replace_na(as.character(`Brood Size`), ""), 
+                        "<br><b>Number Fledged:</b> ", replace_na(as.character(`Number Fledged`), "")),
+        label = ~sitebox 
+      ) %>%
+      addLayersControl(baseGroups = c("Satellite", "Street Map"), options = layersControlOptions(collapsed = FALSE))
   })
 }
 
