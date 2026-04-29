@@ -82,7 +82,7 @@ server <- function(input, output, session) {
   vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL)
   
   load_all_data <- function() {
-    withProgress(message = 'Updating from Dropbox...', value = 0.5, {
+    withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
       # 1. Load Current Year Data
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
@@ -122,20 +122,25 @@ server <- function(input, output, session) {
       if (is.null(vals$ringing_data)) {
         adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE) %>%
           transmute(Ring = ring, Date = as.Date(round(date) - 1, origin = str_c(year, "-01-01")),
-                    Site = site, Box = as.character(box), Age = as.character(age),
+                    Site = site, Box = as.character(box), 
+                    Status = "Adult",
+                    `Age Code` = as.character(age),
                     Sex = case_match(sex, "M" ~ "Male", "F" ~ "Female", .default = sex), 
                     Wing = wing, Weight = mass, Ringer = ringer, Species = "Blue Tit", Fledged = NA_character_)
         
         nestlings <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
           mutate(fledged = if_else(fledged == 1, "Yes", "No")) %>%
           transmute(Ring = ring, Date = as.Date(round(v2date) - 1, origin = str_c(year, "-01-01")),
-                    Site = site, Box = as.character(box), Age = "1", Sex = NA_character_, 
+                    Site = site, Box = as.character(box), 
+                    Status = "Pullus",
+                    `Age Code` = "1",
+                    Sex = NA_character_, 
                     Wing = v2wing, Weight = v2mass, Ringer = v1ringer, Species = "Blue Tit", Fledged = fledged)
         
         vals$ringing_data <- bind_rows(adults, nestlings) %>%
           left_join(site_region_map, by = "Site") %>%
           mutate(Region = replace_na(Region, "Unknown")) %>%
-          select(Region, Site, Box, Species, Date, Ring, Age, Sex, Wing, Weight, Fledged, Ringer)
+          select(Region, Site, Box, Species, Date, Ring, Status, `Age Code`, Sex, Wing, Weight, Fledged, Ringer)
       }
       
       vals$master_current <- current %>% left_join(vals$coords, by = c("Site" = "site", "Box" = "Box"))
