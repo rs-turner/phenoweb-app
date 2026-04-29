@@ -1,5 +1,5 @@
 # ---- auto-install and load libraries ----
-required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet")
+required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis")
 new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
 
 if (length(new_packages)) {
@@ -15,6 +15,26 @@ library(leaflet)
 
 # ---- settings ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
+
+# Task levels for Day Planner (Capitalized and Renamed)
+task_levels <- c("N1 Check", "NL Check", "First Egg Check", 
+                 "First Incubation Check", "Confirm Incubation Check",
+                 "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
+
+# Consistent Color Palette for Shiny (Named Vector)
+task_colors <- c(
+  "N1 Check"                 = "#E41A1C", # Red
+  "NL Check"                 = "#377EB8", # Blue
+  "First Egg Check"          = "#4DAF4A", # Green
+  "First Incubation Check"   = "#984EA3", # Purple
+  "Confirm Incubation Check" = "#FF7F00", # Orange
+  "Hatch Check"              = "#FDB462", # Gold
+  "V1"                       = "#A65628", # Brown
+  "Catch Male"               = "#F781BF", # Pink
+  "Catch Female"             = "#999999", # Grey
+  "V2"                       = "#66C2A5", # Teal
+  "Fledge Check"             = "#8DA0CB"  # Light Blue
+)
 
 # ---- utility functions ----
 get_dropbox_path <- function() {
@@ -35,13 +55,14 @@ find_file_in_dropbox <- function(filename) {
 
 load_bird_data <- function(path, region_name) {
   read_excel(path) %>%
-    mutate(sitebox = str_c(site, box, sep = " "), region = region_name)
+    mutate(sitebox = str_c(site, box, sep = " "), 
+           region = region_name)
 }
 
 # ---- ui ----
 ui <- dashboardPage(
   dashboardHeader(
-    title = paste("Phenoweb Bird Phenology", current_year), 
+    title = paste("Phenoweb", current_year), 
     titleWidth = 300,
     tags$li(class = "dropdown", 
             actionButton("refresh_data", "Refresh Data", icon = icon("sync"), 
@@ -50,9 +71,17 @@ ui <- dashboardPage(
   dashboardSidebar(
     sidebarMenu(
       menuItem("Dashboard", tabName = "dashboard", icon = icon("dove")),
+      hr(),
       selectInput("region_filter", "Region:", choices = "All"),
       selectInput("site_filter", "Site:", choices = "All"),
-      selectInput("species_filter", "Species:", choices = "All")
+      selectInput("species_filter", "Species:", choices = "All"),
+      hr(),
+      div("Optional Day Planner Filters", 
+          style = "margin-left: 15px; margin-bottom: 10px; color: white; font-weight: bold; font-size: 14px;"),
+      numericInput("task_date", "Ordinal Day:", value = 112, min = 1, max = 365),
+      checkboxGroupInput("task_types", "Tasks to Show:", 
+                         choices = task_levels,
+                         selected = task_levels[1:6])
     )
   ),
   dashboardBody(
@@ -68,7 +97,8 @@ ui <- dashboardPage(
     ),
     fluidRow(
       tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
-             tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
+             tabPanel(paste(current_year, "Nest Summary Table"), icon = icon("table"), DTOutput("bird_table")),
+             tabPanel(paste(current_year, "Day Planner"), icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
              tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
              tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
       )
@@ -103,7 +133,7 @@ server <- function(input, output, session) {
       
       site_region_map <- current %>% select(Site, Region) %>% distinct()
       
-      # 2. Cache Coordinates
+      # 2. Cache Coordinates for the Map
       if (is.null(vals$coords)) {
         vals$coords <- read_csv(find_file_in_dropbox("nest_coords.csv"), show_col_types = FALSE) %>%
           mutate(Box = as.character(nest_number)) %>% select(site, Box, lon, lat)
@@ -176,6 +206,56 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
+  # ---- Day Planner Plot ----
+  output$task_plot <- renderPlot({
+    req(filtered_all(), input$task_date, length(input$task_types) > 0)
+    
+    tasks_df <- filtered_all() %>%
+      mutate(
+        trip_type = case_match(region,
+                               "south" ~ if_else(input$task_date %% 2 == 0, "D", "A"),
+                               "north" ~ if_else(input$task_date %% 2 == 0, "B", "C"),
+                               .default = NA_character_)
+      ) %>%
+      filter(trip == trip_type, is.na(suc) | (as.numeric(suc) != 0)) %>%
+      mutate(
+        "N1 Check"                 = is.na(n1),
+        "NL Check"                 = !is.na(n1) & is.na(nl),
+        "First Egg Check"          = !is.na(nl) & is.na(eggsfirstrecorded),
+        "First Incubation Check"   = !is.na(eggsfirstrecorded) & is.na(fki),
+        "Confirm Incubation Check" = !is.na(fki) & (input$task_date == (fki + 2) | (input$task_date > (fki + 2) & is.na(cs))),
+        "Hatch Check"              = (fki + 10) <= input$task_date & is.na(`day hatching first observed`),
+        "V1"                       = (`day hatching first observed` + 6) <= input$task_date & is.na(v1alive),
+        "Fledge Check"             = (`day hatching first observed` + 18) <= input$task_date & is.na(suc) & (v2alive > 0 | is.na(v2alive)),
+        "Catch Male"               = (v1date + 4) <= input$task_date & is.na(male) & v1alive > 0 & is.na(suc),
+        "Catch Female"             = (v1date + 4) <= input$task_date & is.na(female) & v1alive > 0 & is.na(suc),
+        "V2"                       = (v1date + 6) <= input$task_date & is.na(v2alive) & v1alive > 0 & is.na(suc)
+      ) %>%
+      pivot_longer(cols = any_of(task_levels), names_to = "Task", values_to = "is_due") %>%
+      filter(is_due == TRUE, Task %in% input$task_types)
+    
+    validate(need(nrow(tasks_df) > 0, "No tasks due for the selected criteria."))
+    
+    # Ordering Logic
+    tasks_df <- tasks_df %>%
+      mutate(Task = factor(Task, levels = task_levels),
+             sitebox = reorder(sitebox, `N to S`))
+    
+    current_limits <- task_levels[task_levels %in% input$task_types]
+    
+    ggplot(tasks_df, aes(sitebox, Task, fill = Task)) +
+      geom_tile(color = "white", linewidth = 0.5) +
+      scale_y_discrete(limits = rev(current_limits)) + 
+      scale_fill_manual(values = task_colors, drop = FALSE) + 
+      labs(title = paste("Day Planner - Day", input$task_date), x = "\nNest Box\n", y = "") +
+      theme_classic() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        legend.position = "none",
+        panel.grid.major.y = element_line(color = "#f5f5f5")
+      )
+  })
+  
   # --- Value Boxes ---
   output$nests_initiated <- renderValueBox({
     n_init <- nrow(filtered_init()); total <- nrow(filtered_all())
@@ -216,7 +296,7 @@ server <- function(input, output, session) {
   output$hist_avg_cs <- renderValueBox({
     valid <- filtered_hist() %>% filter(!is.na(cs))
     n_count <- nrow(valid)
-    val <- mean(valid$cs, na.rm = TRUE)
+    val <- mean(as.numeric(valid$cs), na.rm = TRUE)
     valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", n_count, ")"), icon = icon("history"), color = "maroon")
   })
   
@@ -242,7 +322,7 @@ server <- function(input, output, session) {
                              columnDefs = list(list(visible = FALSE, targets = sort_col_idx))))
   })
   
-  # --- Map (Original Loading Logic) ---
+  # --- Map ---
   output$nest_map <- renderLeaflet({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
     if(nrow(map_df) == 0) return(NULL)
