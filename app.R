@@ -82,7 +82,7 @@ server <- function(input, output, session) {
   vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL)
   
   load_all_data <- function() {
-    withProgress(message = 'Updating from Dropbox...', value = 0.5, {
+    withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
       # 1. Load Current Year Data
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
