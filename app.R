@@ -1,5 +1,5 @@
 # ---- auto-install and load libraries ----
-required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis")
+required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis", "shinyBS")
 new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
 
 if (length(new_packages)) {
@@ -12,6 +12,7 @@ library(readxl)
 library(tidyverse)
 library(DT)
 library(leaflet)
+library(shinyBS) # Added for pop-up modals
 
 # ---- settings ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
@@ -102,7 +103,10 @@ ui <- dashboardPage(
              tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
              tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
       )
-    )
+    ),
+    # Modal for Historic Nest Data
+    bsModal(id = "history_modal", title = "Nest Box History", trigger = "none", size = "large",
+            DTOutput("history_table"))
   )
 )
 
@@ -305,7 +309,46 @@ server <- function(input, output, session) {
     display_df <- filtered_all() %>% 
       select(Region, Site, Box, Species, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
       mutate(across(everything(), ~replace_na(as.character(.x), "")))
-    datatable(display_df, filter = 'top', options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
+    datatable(display_df, 
+              selection = 'single', # Enable selection to trigger modal
+              filter = 'top', 
+              options = list(pageLength = 15, scrollX = TRUE), 
+              rownames = FALSE)
+  })
+  
+  # --- POP-UP MODAL LOGIC ---
+  observeEvent(input$bird_table_rows_selected, {
+    req(vals$historic)
+    
+    # Get details of the box clicked
+    selected_row <- filtered_all()[input$bird_table_rows_selected, ]
+    selected_site <- selected_row$Site
+    selected_box  <- selected_row$Box
+    
+    # Filter historic data and format as original
+    history_data <- vals$historic %>%
+      filter(Site == selected_site, as.character(box) == selected_box) %>%
+      mutate(
+        `Lay Date` = if_else(is.na(lay_date_historic), "", 
+                             format(as.Date(round(lay_date_historic) - 1, origin = str_c(year, "-01-01")), "%d %B %Y")),
+        `Hatch Date` = if_else(is.na(hatching_first_recorded), "", 
+                               format(as.Date(round(hatching_first_recorded) - 1, origin = str_c(year, "-01-01")), "%d %B %Y")),
+        `Clutch Size` = as.numeric(cs),
+        `Brood Size` = as.numeric(v1alive),
+        `Number Fledged` = as.numeric(suc),
+        Year = as.character(year)
+      ) %>%
+      select(Year, Species, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
+      arrange(desc(Year))
+    
+    output$history_table <- renderDT({
+      datatable(history_data, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE)
+    })
+    
+    toggleModal(session, "history_modal", toggle = "open")
+    
+    # Deselect the row so it can be clicked again
+    selectRows(dataTableProxy("bird_table"), NULL)
   })
   
   output$ringing_table <- renderDT({
