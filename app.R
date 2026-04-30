@@ -186,7 +186,7 @@ server <- function(input, output, session) {
         
         nestlings <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
           mutate(fledged = if_else(fledged == 1, "Yes", "No")) %>%
-          transmute(Ring = ring, Date = as.Date(round(v2date), origin = str_c(year - 1, "-12-31")),
+          transmute(Ring = ring, Date = as.Date(round(v1date), origin = str_c(year - 1, "-12-31")),
                     Site = site, Box = as.character(box), 
                     Status = "Pullus",
                     `Age Code` = "1",
