@@ -12,29 +12,29 @@ library(readxl)
 library(tidyverse)
 library(DT)
 library(leaflet)
-library(shinyBS) # Added for pop-up modals
+library(shinyBS) 
 
 # ---- settings ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
 
-# Task levels for Day Planner (Capitalized and Renamed)
+# Task levels for Day Planner
 task_levels <- c("N1 Check", "NL Check", "First Egg Check", 
                  "First Incubation Check", "Confirm Incubation Check",
                  "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
 
-# Consistent Color Palette for Shiny (Named Vector)
+# Consistent Color Palette
 task_colors <- c(
-  "N1 Check"                 = "#E41A1C", # Red
-  "NL Check"                 = "#377EB8", # Blue
-  "First Egg Check"          = "#4DAF4A", # Green
-  "First Incubation Check"   = "#984EA3", # Purple
-  "Confirm Incubation Check" = "#FF7F00", # Orange
-  "Hatch Check"              = "#FDB462", # Gold
-  "V1"                       = "#A65628", # Brown
-  "Catch Male"               = "#F781BF", # Pink
-  "Catch Female"             = "#999999", # Grey
-  "V2"                       = "#66C2A5", # Teal
-  "Fledge Check"             = "#8DA0CB"  # Light Blue
+  "N1 Check"                 = "#E41A1C", 
+  "NL Check"                 = "#377EB8", 
+  "First Egg Check"          = "#4DAF4A", 
+  "First Incubation Check"   = "#984EA3", 
+  "Confirm Incubation Check" = "#FF7F00", 
+  "Hatch Check"              = "#FDB462", 
+  "V1"                       = "#A65628", 
+  "Catch Male"               = "#F781BF", 
+  "Catch Female"             = "#999999", 
+  "V2"                       = "#66C2A5", 
+  "Fledge Check"             = "#8DA0CB"  
 )
 
 # ---- utility functions ----
@@ -79,7 +79,7 @@ ui <- dashboardPage(
       hr(),
       div("Optional Day Planner Filters", 
           style = "margin-left: 15px; margin-bottom: 10px; color: white; font-weight: bold; font-size: 14px;"),
-      numericInput("task_date", "Ordinal Day:", value = 112, min = 1, max = 365),
+      numericInput("task_date", "Ordinal Day:", value = 112, min = 91, max = 183),
       checkboxGroupInput("task_types", "Tasks to Show:", 
                          choices = task_levels,
                          selected = task_levels[1:6])
@@ -98,13 +98,12 @@ ui <- dashboardPage(
     ),
     fluidRow(
       tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
-             tabPanel(paste(current_year, "Nest Summary Table"), icon = icon("table"), DTOutput("bird_table")),
-             tabPanel(paste(current_year, "Day Planner"), icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
+             tabPanel(paste("Nest Summary Table"), icon = icon("table"), DTOutput("bird_table")),
+             tabPanel(paste("Day Planner"), icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
              tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
              tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
       )
     ),
-    # Modal for Historic Nest Data
     bsModal(id = "history_modal", title = "Nest Box History", trigger = "none", size = "large",
             DTOutput("history_table"))
   )
@@ -113,15 +112,26 @@ ui <- dashboardPage(
 # ---- server ----
 server <- function(input, output, session) {
   
-  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL)
+  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL)
   
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
-      # 1. Load Current Year Data
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
       north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
       
+      # 1. Load basic adult ringing for joins (Historical + Current placeholders)
+      raw_adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
+      
+      vals$adult_rings <- raw_adults %>%
+        filter(!is.na(sex)) %>%
+        group_by(year, site, box, sex) %>%
+        summarise(Ring = paste(unique(ring), collapse = ", "), .groups = "drop") %>%
+        pivot_wider(names_from = sex, values_from = Ring, names_prefix = "Parent_") %>%
+        rename(Male = Parent_M, Female = Parent_F) %>%
+        mutate(box = as.character(box))
+      
+      # 2. Load Current Data
       current <- bind_rows(
         load_bird_data(find_file_in_dropbox(south_file), "south"),
         load_bird_data(find_file_in_dropbox(north_file), "north")
@@ -129,33 +139,35 @@ server <- function(input, output, session) {
         mutate(
           Region = str_to_title(region), Site = site, Box = as.character(box), 
           Species = case_match(species, "bluti" ~ "Blue Tit", "coati" ~ "Coal Tit", "greti" ~ "Great Tit", .default = species),
-          `Lay Date` = if_else(is.na(latest_fed), "", format(as.Date(round(latest_fed) - 1, origin = str_c(current_year, "-01-01")), "%d %B %Y")),
-          `Hatch Date` = if_else(is.na(`day hatching first observed`), "", format(as.Date(round(`day hatching first observed`) - 1, origin = str_c(current_year, "-01-01")), "%d %B %Y")),
+          `Lay Date` = if_else(is.na(latest_fed), "", format(as.Date(round(latest_fed), origin = str_c(current_year - 1, "-12-31")), "%d %B %Y")),
+          `Hatch Date` = if_else(is.na(`day hatching first observed`), "", format(as.Date(round(`day hatching first observed`), origin = str_c(current_year - 1, "-12-31")), "%d %B %Y")),
           `Clutch Size` = as.numeric(cs), `Brood Size` = as.numeric(v1alive), `Number Fledged` = as.numeric(suc),
-          lay_date_numeric = latest_fed
+          lay_date_numeric = latest_fed,
+          Male = NA_character_, 
+          Female = NA_character_
         )
       
       site_region_map <- current %>% select(Site, Region) %>% distinct()
       
-      # 2. Cache Coordinates for the Map
       if (is.null(vals$coords)) {
         vals$coords <- read_csv(find_file_in_dropbox("nest_coords.csv"), show_col_types = FALSE) %>%
           mutate(Box = as.character(nest_number)) %>% select(site, Box, lon, lat)
       }
       
-      # 3. Cache Historical Data
+      # 3. Load Historic Data and Join Parents
       if (is.null(vals$historic)) {
         vals$historic <- read_csv(find_file_in_dropbox("Bird_Phenology.csv"), show_col_types = FALSE) %>%
           mutate(Site = site, Species = case_match(species, "bluti" ~ "Blue Tit", "coati" ~ "Coal Tit", "greti" ~ "Great Tit", .default = species),
-                 lay_date_historic = coalesce(fed, latestfed)) %>%
+                 lay_date_historic = coalesce(fed, latestfed),
+                 box = as.character(box)) %>%
+          left_join(vals$adult_rings, by = c("year", "site", "box")) %>%
           left_join(site_region_map, by = "Site") %>%
           mutate(Region = replace_na(Region, "Unknown"))
       }
       
-      # 4. Cache Ringing Data
       if (is.null(vals$ringing_data)) {
-        adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE) %>%
-          transmute(Ring = ring, Date = as.Date(round(date) - 1, origin = str_c(year, "-01-01")),
+        adults <- raw_adults %>%
+          transmute(Ring = ring, Date = as.Date(round(date), origin = str_c(year - 1, "-12-31")),
                     Site = site, Box = as.character(box), 
                     Status = "Adult",
                     `Age Code` = as.character(age),
@@ -164,7 +176,7 @@ server <- function(input, output, session) {
         
         nestlings <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
           mutate(fledged = if_else(fledged == 1, "Yes", "No")) %>%
-          transmute(Ring = ring, Date = as.Date(round(v2date) - 1, origin = str_c(year, "-01-01")),
+          transmute(Ring = ring, Date = as.Date(round(v2date), origin = str_c(year - 1, "-12-31")),
                     Site = site, Box = as.character(box), 
                     Status = "Pullus",
                     `Age Code` = "1",
@@ -210,7 +222,6 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
-  # ---- Day Planner Plot ----
   output$task_plot <- renderPlot({
     req(filtered_all(), input$task_date, length(input$task_types) > 0)
     
@@ -240,7 +251,6 @@ server <- function(input, output, session) {
     
     validate(need(nrow(tasks_df) > 0, "No tasks due for the selected criteria."))
     
-    # Ordering Logic
     tasks_df <- tasks_df %>%
       mutate(Task = factor(Task, levels = task_levels),
              sitebox = reorder(sitebox, `N to S`))
@@ -260,7 +270,6 @@ server <- function(input, output, session) {
       )
   })
   
-  # --- Value Boxes ---
   output$nests_initiated <- renderValueBox({
     n_init <- nrow(filtered_init()); total <- nrow(filtered_all())
     perc <- if(total > 0) round((n_init / total) * 100, 1) else 0
@@ -271,7 +280,7 @@ server <- function(input, output, session) {
     valid <- filtered_init() %>% filter(!is.na(lay_date_numeric))
     n_count <- nrow(valid)
     mean_val <- mean(valid$lay_date_numeric, na.rm = TRUE)
-    display <- if(is.nan(mean_val)) "N/A" else format(as.Date(round(mean_val)-1, origin=str_c(current_year, "-01-01")), "%d %B")
+    display <- if(is.nan(mean_val)) "N/A" else format(as.Date(round(mean_val), origin = str_c(current_year - 1, "-12-31")), "%d %B")
     valueBox(display, paste0(current_year, " Avg Lay Date (n = ", n_count, ")"), icon = icon("calendar"), color = "green")
   })
   
@@ -293,7 +302,7 @@ server <- function(input, output, session) {
     valid <- filtered_hist() %>% filter(!is.na(lay_date_historic))
     n_count <- nrow(valid)
     hist_ord <- mean(valid$lay_date_historic, na.rm = TRUE)
-    display <- if(is.nan(hist_ord)) "N/A" else format(as.Date(round(hist_ord)-1, origin=str_c(current_year, "-01-01")), "%d %B")
+    display <- if(is.nan(hist_ord)) "N/A" else format(as.Date(round(hist_ord), origin = str_c(current_year - 1, "-12-31")), "%d %B")
     valueBox(display, paste0("Historic Avg Lay Date (n = ", n_count, ")"), icon = icon("history"), color = "teal")
   })
   
@@ -304,41 +313,37 @@ server <- function(input, output, session) {
     valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", n_count, ")"), icon = icon("history"), color = "maroon")
   })
   
-  # --- Tables ---
   output$bird_table <- renderDT({
     display_df <- filtered_all() %>% 
-      select(Region, Site, Box, Species, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
+      select(Region, Site, Box, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
       mutate(across(everything(), ~replace_na(as.character(.x), "")))
     datatable(display_df, 
-              selection = 'single', # Enable selection to trigger modal
+              selection = 'single', 
               filter = 'top', 
               options = list(pageLength = 15, scrollX = TRUE), 
               rownames = FALSE)
   })
   
-  # --- POP-UP MODAL LOGIC ---
   observeEvent(input$bird_table_rows_selected, {
     req(vals$historic)
     
-    # Get details of the box clicked
     selected_row <- filtered_all()[input$bird_table_rows_selected, ]
     selected_site <- selected_row$Site
     selected_box  <- selected_row$Box
     
-    # Filter historic data and format as original
     history_data <- vals$historic %>%
       filter(Site == selected_site, as.character(box) == selected_box) %>%
       mutate(
         `Lay Date` = if_else(is.na(lay_date_historic), "", 
-                             format(as.Date(round(lay_date_historic) - 1, origin = str_c(year, "-01-01")), "%d %B %Y")),
+                             format(as.Date(round(lay_date_historic), origin = str_c(year - 1, "-12-31")), "%d %B %Y")),
         `Hatch Date` = if_else(is.na(hatching_first_recorded), "", 
-                               format(as.Date(round(hatching_first_recorded) - 1, origin = str_c(year, "-01-01")), "%d %B %Y")),
+                               format(as.Date(round(hatching_first_recorded), origin = str_c(year - 1, "-12-31")), "%d %B %Y")),
         `Clutch Size` = as.numeric(cs),
         `Brood Size` = as.numeric(v1alive),
         `Number Fledged` = as.numeric(suc),
         Year = as.character(year)
       ) %>%
-      select(Year, Species, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
+      select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
       arrange(desc(Year))
     
     output$history_table <- renderDT({
@@ -346,8 +351,6 @@ server <- function(input, output, session) {
     })
     
     toggleModal(session, "history_modal", toggle = "open")
-    
-    # Deselect the row so it can be clicked again
     selectRows(dataTableProxy("bird_table"), NULL)
   })
   
@@ -365,7 +368,6 @@ server <- function(input, output, session) {
                              columnDefs = list(list(visible = FALSE, targets = sort_col_idx))))
   })
   
-  # --- Map ---
   output$nest_map <- renderLeaflet({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
     if(nrow(map_df) == 0) return(NULL)
@@ -379,6 +381,8 @@ server <- function(input, output, session) {
         popup = ~paste0("<b>Box ID:</b> ", sitebox, 
                         "<br><b>Status:</b> ", if_else(!is.na(n1), "Occupied", "Empty"), 
                         "<br><b>Species:</b> ", replace_na(as.character(Species), ""), 
+                        "<br><b>Male:</b> ", replace_na(as.character(Male), ""),
+                        "<br><b>Female:</b> ", replace_na(as.character(Female), ""),
                         "<br><b>Lay Date:</b> ", replace_na(as.character(`Lay Date`), ""), 
                         "<br><b>Clutch Size:</b> ", replace_na(as.character(`Clutch Size`), ""), 
                         "<br><b>Hatch Date:</b> ", replace_na(as.character(`Hatch Date`), ""), 
