@@ -63,8 +63,10 @@ load_bird_data <- function(path, region_name) {
 # ---- ui ----
 ui <- dashboardPage(
   dashboardHeader(
-    title = paste("Phenoweb", current_year), 
-    titleWidth = 300,
+    # Custom CSS to align title left
+    title = tags$div(paste("Phenoweb", current_year), 
+                     style = "text-align: left; padding-left: 1px; width: 100%; font-weight: bold;"),
+    titleWidth = 200,
     tags$li(class = "dropdown", 
             actionButton("refresh_data", "Refresh Data", icon = icon("sync"), 
                          style = "margin-top: 8px; margin-right: 10px;"))
@@ -86,6 +88,13 @@ ui <- dashboardPage(
     )
   ),
   dashboardBody(
+    # Additional CSS to remove default header centering and padding
+    tags$head(tags$style(HTML('
+      .main-header .logo {
+        text-align: left !important;
+        padding: 0 0 0 15px !important;
+      }
+    '))),
     fluidRow(
       valueBoxOutput("nests_initiated", width = 3),
       valueBoxOutput("avg_lay_date", width = 3),
