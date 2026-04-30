@@ -1,4 +1,4 @@
-# ---- auto-install and load libraries ----
+# ---- Auto-install and load required libraries ----
 required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis", "shinyBS")
 new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
 
@@ -14,15 +14,15 @@ library(DT)
 library(leaflet)
 library(shinyBS) 
 
-# ---- settings ----
+# ---- Global Settings & Metadata ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
 
-# Task levels for Day Planner
+# Breeding season task levels for the Day Planner logic
 task_levels <- c("N1 Check", "NL Check", "First Egg Check", 
                  "First Incubation Check", "Confirm Incubation Check",
                  "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
 
-# Consistent Color Palette
+# Consistent colour palette for task visualisation
 task_colors <- c(
   "N1 Check"                 = "#E41A1C", 
   "NL Check"                 = "#377EB8", 
@@ -37,7 +37,9 @@ task_colors <- c(
   "Fledge Check"             = "#8DA0CB"  
 )
 
-# ---- utility functions ----
+# ---- Utility Functions for Data Access ----
+
+# Locate Dropbox root folder across different operating systems
 get_dropbox_path <- function() {
   paths <- c(Sys.getenv("DROPBOX"),
              file.path(Sys.getenv("USERPROFILE"), "Dropbox"), 
@@ -47,6 +49,7 @@ get_dropbox_path <- function() {
   return(valid_path[1])
 }
 
+# Recursively search for files within the Dropbox directory
 find_file_in_dropbox <- function(filename) {
   path <- list.files(get_dropbox_path(), pattern = paste0("^", filename, "$"), 
                      recursive = TRUE, full.names = TRUE)
@@ -54,16 +57,16 @@ find_file_in_dropbox <- function(filename) {
   return(path[1])
 }
 
+# Standardise the loading of bird phenology Excel sheets
 load_bird_data <- function(path, region_name) {
   read_excel(path) %>%
     mutate(sitebox = str_c(site, box, sep = " "), 
            region = region_name)
 }
 
-# ---- ui ----
+# ---- User Interface (UI) ----
 ui <- dashboardPage(
   dashboardHeader(
-    # Custom CSS to align title left
     title = tags$div(paste("Phenoweb", current_year), 
                      style = "text-align: left; padding-left: 1px; width: 100%; font-weight: bold;"),
     titleWidth = 200,
@@ -88,7 +91,6 @@ ui <- dashboardPage(
     )
   ),
   dashboardBody(
-    # Additional CSS to remove default header centering and padding
     tags$head(tags$style(HTML('
       .main-header .logo {
         text-align: left !important;
@@ -107,8 +109,8 @@ ui <- dashboardPage(
     ),
     fluidRow(
       tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
-             tabPanel(paste("Nest Summary Table"), icon = icon("table"), DTOutput("bird_table")),
-             tabPanel(paste("Day Planner"), icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
+             tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
+             tabPanel("Day Planner", icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
              tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
              tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
       )
@@ -118,18 +120,19 @@ ui <- dashboardPage(
   )
 )
 
-# ---- server ----
+# ---- Server Logic ----
 server <- function(input, output, session) {
   
+  # Reactive values for session-wide data storage
   vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL)
   
+  # Main function to synchronise data from Dropbox
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
       north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
       
-      # 1. Load basic adult ringing for joins (Historical + Current placeholders)
       raw_adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
       
       vals$adult_rings <- raw_adults %>%
@@ -140,7 +143,6 @@ server <- function(input, output, session) {
         rename(Male = Parent_M, Female = Parent_F) %>%
         mutate(box = as.character(box))
       
-      # 2. Load Current Data
       current <- bind_rows(
         load_bird_data(find_file_in_dropbox(south_file), "south"),
         load_bird_data(find_file_in_dropbox(north_file), "north")
@@ -163,7 +165,6 @@ server <- function(input, output, session) {
           mutate(Box = as.character(nest_number)) %>% select(site, Box, lon, lat)
       }
       
-      # 3. Load Historic Data and Join Parents
       if (is.null(vals$historic)) {
         vals$historic <- read_csv(find_file_in_dropbox("Bird_Phenology.csv"), show_col_types = FALSE) %>%
           mutate(Site = site, Species = case_match(species, "bluti" ~ "Blue Tit", "coati" ~ "Coal Tit", "greti" ~ "Great Tit", .default = species),
@@ -202,8 +203,10 @@ server <- function(input, output, session) {
     })
   }
   
+  # Trigger data reload on button click or initial load
   observeEvent(input$refresh_data, { load_all_data() }, ignoreNULL = FALSE)
   
+  # Synchronise UI filters with loaded data
   observe({
     req(vals$master_current)
     data <- vals$master_current
@@ -213,6 +216,7 @@ server <- function(input, output, session) {
     updateSelectInput(session, "species_filter", choices = c("All", sort(unique(data$Species))), selected = input$species_filter)
   })
   
+  # Reactive filtered datasets
   filtered_all <- reactive({
     req(vals$master_current)
     vals$master_current %>%
@@ -231,6 +235,7 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
+  # Output: Day Planner Plot
   output$task_plot <- renderPlot({
     req(filtered_all(), input$task_date, length(input$task_types) > 0)
     
@@ -279,6 +284,7 @@ server <- function(input, output, session) {
       )
   })
   
+  # Output: Progress Boxes 
   output$nests_initiated <- renderValueBox({
     n_init <- nrow(filtered_init()); total <- nrow(filtered_all())
     perc <- if(total > 0) round((n_init / total) * 100, 1) else 0
@@ -287,58 +293,61 @@ server <- function(input, output, session) {
   
   output$avg_lay_date <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(lay_date_numeric))
-    n_count <- nrow(valid)
     mean_val <- mean(valid$lay_date_numeric, na.rm = TRUE)
     display <- if(is.nan(mean_val)) "N/A" else format(as.Date(round(mean_val), origin = str_c(current_year - 1, "-12-31")), "%d %B")
-    valueBox(display, paste0(current_year, " Avg Lay Date (n = ", n_count, ")"), icon = icon("calendar"), color = "green")
+    valueBox(display, paste0(current_year, " Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("calendar"), color = "green")
   })
   
   output$avg_clutch_size <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(`Clutch Size`))
-    n_count <- nrow(valid)
     val <- mean(valid$`Clutch Size`, na.rm = TRUE)
-    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0(current_year, " Avg Clutch Size (n = ", n_count, ")"), icon = icon("egg"), color = "purple")
+    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0(current_year, " Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("egg"), color = "purple")
   })
   
   output$total_fledge <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(`Number Fledged`))
-    n_count <- nrow(valid)
     total_val <- sum(valid$`Number Fledged`, na.rm = TRUE)
-    valueBox(total_val, paste0(current_year, " Total Fledglings (n = ", n_count, ")"), icon = icon("dove"), color = "yellow")
+    valueBox(total_val, paste0(current_year, " Total Fledglings (n = ", nrow(valid), ")"), icon = icon("dove"), color = "yellow")
   })
   
   output$hist_avg_lay <- renderValueBox({
     valid <- filtered_hist() %>% filter(!is.na(lay_date_historic))
-    n_count <- nrow(valid)
     hist_ord <- mean(valid$lay_date_historic, na.rm = TRUE)
     display <- if(is.nan(hist_ord)) "N/A" else format(as.Date(round(hist_ord), origin = str_c(current_year - 1, "-12-31")), "%d %B")
-    valueBox(display, paste0("Historic Avg Lay Date (n = ", n_count, ")"), icon = icon("history"), color = "teal")
+    valueBox(display, paste0("Historic Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("history"), color = "teal")
   })
   
   output$hist_avg_cs <- renderValueBox({
     valid <- filtered_hist() %>% filter(!is.na(cs))
-    n_count <- nrow(valid)
     val <- mean(as.numeric(valid$cs), na.rm = TRUE)
-    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", n_count, ")"), icon = icon("history"), color = "maroon")
+    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("history"), color = "maroon")
   })
   
+  # Output: Nest Summary Table
   output$bird_table <- renderDT({
     display_df <- filtered_all() %>% 
       select(Region, Site, Box, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
       mutate(across(everything(), ~replace_na(as.character(.x), "")))
-    datatable(display_df, 
-              selection = 'single', 
-              filter = 'top', 
-              options = list(pageLength = 15, scrollX = TRUE), 
-              rownames = FALSE)
+    datatable(display_df, selection = 'single', filter = 'top', options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
   })
   
   observeEvent(input$bird_table_rows_selected, {
-    req(vals$historic)
+    req(vals$historic, vals$master_current)
     
     selected_row <- filtered_all()[input$bird_table_rows_selected, ]
     selected_site <- selected_row$Site
     selected_box  <- selected_row$Box
+    
+    current_box_data <- selected_row %>%
+      mutate(
+        Year = as.character(current_year),
+        `Lay Date` = as.character(`Lay Date`),
+        `Hatch Date` = as.character(`Hatch Date`),
+        `Clutch Size` = as.numeric(`Clutch Size`),
+        `Brood Size` = as.numeric(`Brood Size`),
+        `Number Fledged` = as.numeric(`Number Fledged`)
+      ) %>%
+      select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`)
     
     history_data <- vals$historic %>%
       filter(Site == selected_site, as.character(box) == selected_box) %>%
@@ -352,17 +361,20 @@ server <- function(input, output, session) {
         `Number Fledged` = as.numeric(suc),
         Year = as.character(year)
       ) %>%
-      select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
+      select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`)
+    
+    full_history <- bind_rows(current_box_data, history_data) %>%
       arrange(desc(Year))
     
     output$history_table <- renderDT({
-      datatable(history_data, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE)
+      datatable(full_history, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE)
     })
     
     toggleModal(session, "history_modal", toggle = "open")
     selectRows(dataTableProxy("bird_table"), NULL)
   })
   
+  # Output: Ringing Table
   output$ringing_table <- renderDT({
     req(vals$ringing_data)
     ringing_df <- vals$ringing_data %>%
@@ -377,6 +389,7 @@ server <- function(input, output, session) {
                              columnDefs = list(list(visible = FALSE, targets = sort_col_idx))))
   })
   
+  # Output: Leaflet Map
   output$nest_map <- renderLeaflet({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
     if(nrow(map_df) == 0) return(NULL)
@@ -403,4 +416,5 @@ server <- function(input, output, session) {
   })
 }
 
+# Launch Application
 shinyApp(ui, server)
