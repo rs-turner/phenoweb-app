@@ -127,26 +127,28 @@ ui <- dashboardPage(
                 valueBoxOutput("total_fledge", width = 3) 
               ),
               fluidRow(
-                valueBoxOutput("hist_avg_lay", width = 6),
-                valueBoxOutput("hist_avg_cs", width = 6)
+                valueBoxOutput("peak_season_box", width = 4),
+                valueBoxOutput("hist_avg_lay", width = 4),
+                valueBoxOutput("hist_avg_cs", width = 4)
               ),
               fluidRow(
                 tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
                        tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
                        
-                       # Day Planner with internal Widget Filters
                        tabPanel("Day Planner", icon = icon("calendar-check"), 
-                                fluidRow(class = "tight-row",                                 column(width = 2,
-                                                                                                     wellPanel(class = "planner-sidebar", 
-                                                                                                               h4(""),
-                                                                                                               numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"),                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
-                                                                                                                                                                                                                                                                                                                   choices = task_levels, 
-                                                                                                                                                                                                                                                                                                                   selected = task_levels[1:11])
-                                                                                                     )
-                                ),
-                                column(width = 10,
-                                       plotOutput("task_plot", height = "650px")
-                                )
+                                fluidRow(class = "tight-row", 
+                                         column(width = 2,
+                                                wellPanel(class = "planner-sidebar", 
+                                                          h4(""),
+                                                          numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"), 
+                                                          checkboxGroupInput("task_types", "Tasks to Show:", 
+                                                                             choices = task_levels, 
+                                                                             selected = task_levels[1:11])
+                                                )
+                                         ),
+                                         column(width = 10,
+                                                plotOutput("task_plot", height = "650px")
+                                         )
                                 )
                        ),
                        
@@ -289,6 +291,37 @@ server <- function(input, output, session) {
       filter(if(input$region_filter != "All") Region == input$region_filter else TRUE) %>%
       filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
+  })
+  
+  # ---- NEW: Peak Season Calculation ----
+  output$peak_season_box <- renderValueBox({
+    req(filtered_init())
+    
+    # Filter for nests that have a recorded incubation start (fki)
+    peak_data <- filtered_init() %>%
+      filter(!is.na(fki)) %>%
+      mutate(
+        ring_day = fki + 20, # 14 incubation + 6 ringing
+        proc_day = fki + 26  # 14 incubation + 12 processing
+      )
+    
+    if (nrow(peak_data) == 0) {
+      return(valueBox("Calculating...", "Peak Season Window", icon = icon("clock"), color = "black"))
+    }
+    
+    # Find the central range of the busy period
+    avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
+    avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
+    
+    date_start <- format(as.Date(round(avg_peak_start), origin = str_c(current_year - 1, "-12-31")), "%d %b")
+    date_end   <- format(as.Date(round(avg_peak_end), origin = str_c(current_year - 1, "-12-31")), "%d %b")
+    
+    valueBox(
+      value = paste(date_start, "-", date_end),
+      subtitle = paste0("Peak Fieldwork Window (n = ", nrow(peak_data),")"),
+      icon = icon("arrow-trend-up"),
+      color = "orange"
+    )
   })
   
   output$task_plot <- renderPlot({
