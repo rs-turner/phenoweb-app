@@ -72,7 +72,8 @@ ui <- dashboardPage(
     width = 150, 
     sidebarMenu(
       menuItem("Birds", tabName = "bird_data", icon = icon("dove")),
-      menuItem("Trees", tabName = "tree_data", icon = icon("tree"))
+      menuItem("Trees", tabName = "tree_data", icon = icon("tree")),
+      menuItem("Invertebrates", tabName = "invert_data", icon = icon("bug"))
     )
   ),
   dashboardBody(
@@ -135,17 +136,17 @@ ui <- dashboardPage(
                        
                        # Day Planner with internal Widget Filters
                        tabPanel("Day Planner", icon = icon("calendar-check"), 
-                                fluidRow(class = "tight-row",                            column(width = 2,
-                                         wellPanel(class = "planner-sidebar", # Added class here
-                                                   h4(""),
-                                                   numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"),                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
-                                                                      choices = task_levels, 
-                                                                      selected = task_levels[1:11])
-                                         )
-                                  ),
-                                  column(width = 10,
-                                         plotOutput("task_plot", height = "650px")
-                                  )
+                                fluidRow(class = "tight-row",                                 column(width = 2,
+                                                                                                     wellPanel(class = "planner-sidebar", 
+                                                                                                               h4(""),
+                                                                                                               numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"),                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
+                                                                                                                                                                                                                                                                                                                   choices = task_levels, 
+                                                                                                                                                                                                                                                                                                                   selected = task_levels[1:11])
+                                                                                                     )
+                                ),
+                                column(width = 10,
+                                       plotOutput("task_plot", height = "650px")
+                                )
                                 )
                        ),
                        
@@ -159,6 +160,15 @@ ui <- dashboardPage(
       tabItem(tabName = "tree_data",
               fluidRow(
                 box(title = "Tree Phenology", width = 12, status = "success",
+                    p("Coming soon (probably).")
+                )
+              )
+      ),
+      
+      # ---- APP 3: INVERTEBRATE DATA ----
+      tabItem(tabName = "invert_data",
+              fluidRow(
+                box(title = "Invertebrate Phenology", width = 12, status = "warning",
                     p("Coming soon (probably).")
                 )
               )
