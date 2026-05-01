@@ -81,7 +81,6 @@ ui <- dashboardPage(
         text-align: left !important;
         padding: 0 0 0 15px !important;
       }
-      /* Custom style to reduce font size in the planner sidebar */
       .planner-sidebar {
         font-size: 11px;
         padding: 5px !important; 
@@ -89,19 +88,24 @@ ui <- dashboardPage(
       .planner-sidebar h4 {
         font-size: 14px;
         font-weight: bold;
-        margin-top: 1px; /* 
+        margin-top: 1px;
         margin-bottom: 1px;
       }
       .planner-sidebar .control-label {
         font-size: 11px;
-        margin-bottom: 4px; /* TIGHTENS SPACE ABOVE INPUTS */
+        margin-bottom: 4px;
       }
       .planner-sidebar .checkbox label {
         font-size: 11px;
       }
-      /* Tighter spacing for the numeric input group */
       .planner-sidebar .form-group {
         margin-bottom: 4px;
+      }
+      .tight-row > .col-sm-2 {
+        padding-right: 1px !important;
+      }
+      .tight-row > .col-sm-10 {
+        padding-left: 1px !important;
       }
     '))),
     
@@ -131,8 +135,7 @@ ui <- dashboardPage(
                        
                        # Day Planner with internal Widget Filters
                        tabPanel("Day Planner", icon = icon("calendar-check"), 
-                                fluidRow(
-                                  column(width = 2,
+                                fluidRow(class = "tight-row",                            column(width = 2,
                                          wellPanel(class = "planner-sidebar", # Added class here
                                                    h4(""),
                                                    numericInput("task_date", "Ordinal Day:", value = 91, min = 91, max = 183, width = "100px"),
