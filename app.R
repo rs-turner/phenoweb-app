@@ -138,8 +138,7 @@ ui <- dashboardPage(
                                 fluidRow(class = "tight-row",                            column(width = 2,
                                          wellPanel(class = "planner-sidebar", # Added class here
                                                    h4(""),
-                                                   numericInput("task_date", "Ordinal Day:", value = 91, min = 91, max = 183, width = "100px"),
-                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
+                                                   numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"),                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
                                                                       choices = task_levels, 
                                                                       selected = task_levels[1:11])
                                          )
