@@ -17,12 +17,10 @@ library(shinyBS)
 # ---- Global Settings & Metadata ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
 
-# Breeding season task levels for the Day Planner logic
 task_levels <- c("N1 Check", "NL Check", "First Egg Check", 
                  "First Incubation Check", "Confirm Incubation Check",
                  "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
 
-# Consistent colour palette for task visualisation
 task_colors <- c(
   "N1 Check"                 = "#E41A1C", 
   "NL Check"                 = "#377EB8", 
@@ -38,8 +36,6 @@ task_colors <- c(
 )
 
 # ---- Utility Functions for Data Access ----
-
-# Locate Dropbox root folder across different operating systems
 get_dropbox_path <- function() {
   paths <- c(Sys.getenv("DROPBOX"),
              file.path(Sys.getenv("USERPROFILE"), "Dropbox"), 
@@ -49,7 +45,6 @@ get_dropbox_path <- function() {
   return(valid_path[1])
 }
 
-# Recursively search for files within the Dropbox directory
 find_file_in_dropbox <- function(filename) {
   path <- list.files(get_dropbox_path(), pattern = paste0("^", filename, "$"), 
                      recursive = TRUE, full.names = TRUE)
@@ -57,7 +52,6 @@ find_file_in_dropbox <- function(filename) {
   return(path[1])
 }
 
-# Standardise the loading of bird phenology Excel sheets
 load_bird_data <- function(path, region_name) {
   read_excel(path) %>%
     mutate(sitebox = str_c(site, box, sep = " "), 
@@ -67,27 +61,18 @@ load_bird_data <- function(path, region_name) {
 # ---- User Interface (UI) ----
 ui <- dashboardPage(
   dashboardHeader(
-    title = tags$div(paste("Phenoweb", current_year), 
+    title = tags$div(paste("Phenoweb"), 
                      style = "text-align: left; padding-left: 1px; width: 100%; font-weight: bold;"),
-    titleWidth = 200,
+    titleWidth = 150, 
     tags$li(class = "dropdown", 
             actionButton("refresh_data", "Refresh Data", icon = icon("sync"), 
                          style = "margin-top: 8px; margin-right: 10px;"))
   ),
   dashboardSidebar(
+    width = 150, 
     sidebarMenu(
-      menuItem("Dashboard", tabName = "dashboard", icon = icon("dove")),
-      hr(),
-      selectInput("region_filter", "Region:", choices = "All"),
-      selectInput("site_filter", "Site:", choices = "All"),
-      selectInput("species_filter", "Species:", choices = "All"),
-      hr(),
-      div("Optional Day Planner Filters", 
-          style = "margin-left: 15px; margin-bottom: 10px; color: white; font-weight: bold; font-size: 14px;"),
-      numericInput("task_date", "Ordinal Day:", value = 112, min = 91, max = 183),
-      checkboxGroupInput("task_types", "Tasks to Show:", 
-                         choices = task_levels,
-                         selected = task_levels[1:6])
+      menuItem("Birds", tabName = "bird_data", icon = icon("dove")),
+      menuItem("Trees", tabName = "tree_data", icon = icon("tree"))
     )
   ),
   dashboardBody(
@@ -96,25 +81,88 @@ ui <- dashboardPage(
         text-align: left !important;
         padding: 0 0 0 15px !important;
       }
+      /* Custom style to reduce font size in the planner sidebar */
+      .planner-sidebar {
+        font-size: 11px;
+        padding: 5px !important; 
+      }
+      .planner-sidebar h4 {
+        font-size: 14px;
+        font-weight: bold;
+        margin-top: 1px; /* 
+        margin-bottom: 1px;
+      }
+      .planner-sidebar .control-label {
+        font-size: 11px;
+        margin-bottom: 4px; /* TIGHTENS SPACE ABOVE INPUTS */
+      }
+      .planner-sidebar .checkbox label {
+        font-size: 11px;
+      }
+      /* Tighter spacing for the numeric input group */
+      .planner-sidebar .form-group {
+        margin-bottom: 4px;
+      }
     '))),
-    fluidRow(
-      valueBoxOutput("nests_initiated", width = 3),
-      valueBoxOutput("avg_lay_date", width = 3),
-      valueBoxOutput("avg_clutch_size", width = 3),
-      valueBoxOutput("total_fledge", width = 3) 
-    ),
-    fluidRow(
-      valueBoxOutput("hist_avg_lay", width = 6),
-      valueBoxOutput("hist_avg_cs", width = 6)
-    ),
-    fluidRow(
-      tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
-             tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
-             tabPanel("Day Planner", icon = icon("calendar-check"), plotOutput("task_plot", height = "650px")),
-             tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
-             tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
+    
+    tabItems(
+      # ---- APP 1: BIRD DATA ----
+      tabItem(tabName = "bird_data",
+              fluidRow(
+                box(title = "Filters", width = 12, status = "primary", solidHeader = TRUE,
+                    column(4, selectInput("region_filter", "Region:", choices = "All")),
+                    column(4, selectInput("site_filter", "Site:", choices = "All")),
+                    column(4, selectInput("species_filter", "Species:", choices = "All"))
+                )
+              ),
+              fluidRow(
+                valueBoxOutput("nests_initiated", width = 3),
+                valueBoxOutput("avg_lay_date", width = 3),
+                valueBoxOutput("avg_clutch_size", width = 3),
+                valueBoxOutput("total_fledge", width = 3) 
+              ),
+              fluidRow(
+                valueBoxOutput("hist_avg_lay", width = 6),
+                valueBoxOutput("hist_avg_cs", width = 6)
+              ),
+              fluidRow(
+                tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
+                       tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
+                       
+                       # Day Planner with internal Widget Filters
+                       tabPanel("Day Planner", icon = icon("calendar-check"), 
+                                fluidRow(
+                                  column(width = 2,
+                                         wellPanel(class = "planner-sidebar", # Added class here
+                                                   h4(""),
+                                                   numericInput("task_date", "Ordinal Day:", value = 91, min = 91, max = 183, width = "100px"),
+                                                   checkboxGroupInput("task_types", "Tasks to Show:", 
+                                                                      choices = task_levels, 
+                                                                      selected = task_levels[1:11])
+                                         )
+                                  ),
+                                  column(width = 10,
+                                         plotOutput("task_plot", height = "650px")
+                                  )
+                                )
+                       ),
+                       
+                       tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
+                       tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
+                )
+              )
+      ),
+      
+      # ---- APP 2: TREE DATA ----
+      tabItem(tabName = "tree_data",
+              fluidRow(
+                box(title = "Tree Phenology", width = 12, status = "success",
+                    p("Coming soon (probably).")
+                )
+              )
       )
     ),
+    
     bsModal(id = "history_modal", title = "Nest Box History", trigger = "none", size = "large",
             DTOutput("history_table"))
   )
@@ -123,10 +171,8 @@ ui <- dashboardPage(
 # ---- Server Logic ----
 server <- function(input, output, session) {
   
-  # Reactive values for session-wide data storage
   vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL)
   
-  # Main function to synchronise data from Dropbox
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
@@ -204,10 +250,8 @@ server <- function(input, output, session) {
     })
   }
   
-  # Trigger data reload on button click or initial load
   observeEvent(input$refresh_data, { load_all_data() }, ignoreNULL = FALSE)
   
-  # Synchronise UI filters with loaded data
   observe({
     req(vals$master_current)
     data <- vals$master_current
@@ -217,7 +261,6 @@ server <- function(input, output, session) {
     updateSelectInput(session, "species_filter", choices = c("All", sort(unique(data$Species))), selected = input$species_filter)
   })
   
-  # Reactive filtered datasets
   filtered_all <- reactive({
     req(vals$master_current)
     vals$master_current %>%
@@ -236,7 +279,6 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
-  # Output: Day Planner Plot
   output$task_plot <- renderPlot({
     req(filtered_all(), input$task_date, length(input$task_types) > 0)
     
@@ -276,16 +318,15 @@ server <- function(input, output, session) {
       geom_tile(color = "white", linewidth = 0.5) +
       scale_y_discrete(limits = rev(current_limits)) + 
       scale_fill_manual(values = task_colors, drop = FALSE) + 
-      labs(title = paste("Day Planner - Day", input$task_date), x = "\nNest Box\n", y = "") +
+      labs(title = paste("Day Planner - Day", input$task_date), x = "", y = "") +
       theme_classic() +
       theme(
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 8), 
         legend.position = "none",
         panel.grid.major.y = element_line(color = "#f5f5f5")
       )
   })
   
-  # Output: Progress Boxes 
   output$nests_initiated <- renderValueBox({
     n_init <- nrow(filtered_init()); total <- nrow(filtered_all())
     perc <- if(total > 0) round((n_init / total) * 100, 1) else 0
@@ -324,7 +365,6 @@ server <- function(input, output, session) {
     valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("history"), color = "maroon")
   })
   
-  # Output: Nest Summary Table
   output$bird_table <- renderDT({
     display_df <- filtered_all() %>% 
       select(Region, Site, Box, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`) %>%
@@ -368,14 +408,13 @@ server <- function(input, output, session) {
       arrange(desc(Year))
     
     output$history_table <- renderDT({
-      datatable(full_history, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE)
+      datatable(full_history, options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
     })
     
     toggleModal(session, "history_modal", toggle = "open")
     selectRows(dataTableProxy("bird_table"), NULL)
   })
   
-  # Output: Ringing Table
   output$ringing_table <- renderDT({
     req(vals$ringing_data)
     ringing_df <- vals$ringing_data %>%
@@ -390,7 +429,6 @@ server <- function(input, output, session) {
                              columnDefs = list(list(visible = FALSE, targets = sort_col_idx))))
   })
   
-  # Output: Leaflet Map
   output$nest_map <- renderLeaflet({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
     if(nrow(map_df) == 0) return(NULL)
