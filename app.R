@@ -293,23 +293,28 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
-  # ---- NEW: Peak Season Calculation ----
   output$peak_season_box <- renderValueBox({
+    # req() ensures this only runs when data is available
     req(filtered_init())
     
-    # Filter for nests that have a recorded incubation start (fki)
+    # Logic: Prioritize Hatch Date + 6/12; fallback to Incubation (fki) + 20/26
     peak_data <- filtered_init() %>%
-      filter(!is.na(fki)) %>%
+      filter(!is.na(`day hatching first observed`) | !is.na(fki)) %>%
       mutate(
-        ring_day = fki + 20, # 14 incubation + 6 ringing
-        proc_day = fki + 26  # 14 incubation + 12 processing
+        ring_day = if_else(!is.na(`day hatching first observed`), 
+                           `day hatching first observed` + 6, 
+                           fki + 20),
+        proc_day = if_else(!is.na(`day hatching first observed`), 
+                           `day hatching first observed` + 12, 
+                           fki + 26)
       )
     
+    # Handle cases where filters result in no valid dates
     if (nrow(peak_data) == 0) {
-      return(valueBox("Calculating...", "Peak Season Window", icon = icon("clock"), color = "black"))
+      return(valueBox("N/A", "Peak Season Window", icon = icon("clock"), color = "black"))
     }
     
-    # Find the central range of the busy period
+    # Calculate medians based ONLY on the currently filtered rows
     avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
     avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
     
@@ -318,7 +323,7 @@ server <- function(input, output, session) {
     
     valueBox(
       value = paste(date_start, "-", date_end),
-      subtitle = paste0("Peak Fieldwork Window (n = ", nrow(peak_data),")"),
+      subtitle = paste0("Peak Fieldwork Window (n = ", nrow(peak_data), ")"),
       icon = icon("arrow-trend-up"),
       color = "orange"
     )
