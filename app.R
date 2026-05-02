@@ -1,5 +1,5 @@
 # ---- Auto-install and load required libraries ----
-required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis", "shinyBS")
+required_packages <- c("shiny", "shinydashboard", "readxl", "tidyverse", "DT", "leaflet", "viridis", "shinyBS", "plotly")
 new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
 
 if (length(new_packages)) {
@@ -13,6 +13,7 @@ library(tidyverse)
 library(DT)
 library(leaflet)
 library(shinyBS) 
+library(plotly)
 
 # ---- Global Settings & Metadata ----
 current_year <- as.numeric(format(Sys.Date(), "%Y"))
@@ -33,6 +34,14 @@ task_colors <- c(
   "Catch Female"             = "#999999", 
   "V2"                       = "#66C2A5", 
   "Fledge Check"             = "#8DA0CB"  
+)
+
+taxa_colors <- c(
+  "Caterpillars"   = "#2E86C1", 
+  "Beetles"        = "#F1C40F", 
+  "Spiders"        = "#8E44AD", 
+  "St. Marks Flys" = "#27AE60",
+  "All"            = "#555555"
 )
 
 # ---- Utility Functions for Data Access ----
@@ -56,6 +65,12 @@ load_bird_data <- function(path, region_name) {
   read_excel(path) %>%
     mutate(sitebox = str_c(site, box, sep = " "), 
            region = region_name)
+}
+
+load_invert_data <- function(path, region_name) {
+  read_excel(path, sheet = 1) %>%
+    rename(`Host Species` = Species, `St. Marks Flys` = Bibio, Site = Site) %>%
+    mutate(Region = region_name)
 }
 
 # ---- User Interface (UI) ----
@@ -138,8 +153,8 @@ ui <- dashboardPage(
                        tabPanel("Day Planner", icon = icon("calendar-check"), 
                                 fluidRow(class = "tight-row", 
                                          column(width = 2,
-                                                wellPanel(class = "planner-sidebar", 
-                                                          h4(""),
+                                                wellPanel(class = "planner-sidebar", style = "min-height: 550px;",
+                                                          h4("Plot Settings"),
                                                           numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"), 
                                                           checkboxGroupInput("task_types", "Tasks to Show:", 
                                                                              choices = task_levels, 
@@ -147,7 +162,7 @@ ui <- dashboardPage(
                                                 )
                                          ),
                                          column(width = 10,
-                                                plotOutput("task_plot", height = "650px")
+                                                plotOutput("task_plot", height = "550px")
                                          )
                                 )
                        ),
@@ -170,8 +185,38 @@ ui <- dashboardPage(
       # ---- APP 3: INVERTEBRATE DATA ----
       tabItem(tabName = "invert_data",
               fluidRow(
-                box(title = "Invertebrate Phenology", width = 12, status = "warning",
-                    p("Coming soon (probably).")
+                box(title = "Filters", width = 12, status = "primary", solidHeader = TRUE,
+                    column(4, selectInput("inv_region_filter", "Region:", choices = "All")),
+                    column(4, selectInput("inv_site_filter", "Site:", choices = "All")),
+                    column(4, selectInput("inv_host_filter", "Host Species:", choices = "All"))
+                )
+              ),
+              fluidRow(
+                box(title = "", width = 12, status = "info",
+                    plotlyOutput("invert_bar", height = "80px")
+                )
+              ),
+              fluidRow(
+                tabBox(title = "Exploration Tools", width = 12, id = "tab_invert",
+                       tabPanel("Invertebrate Abundance Plot", icon = icon("chart-bar"),
+                                fluidRow(
+                                  column(width = 2, 
+                                         wellPanel(class = "planner-sidebar", style = "min-height: 550px;",
+                                                   h4("Plot Settings"),
+                                                   selectInput("inv_taxa_filter", "Invertebrate Group:", 
+                                                               choices = c("All", "Caterpillars", "Beetles", "Spiders", "St. Marks Flys"),
+                                                               selected = "Caterpillars"),
+                                                   sliderInput("inv_date_range", "Ordinal Day (Range):", min = 91, max = 183, value = c(91, 183), ticks = FALSE),
+                                                   numericInput("inv_x_breaks", "X-Axis Breaks:", value = 10, min = 1),
+                                                   sliderInput("inv_count_range", "Count (Range):", min = 0, max = 300, value = c(0, 50), ticks = FALSE),
+                                                   numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 1)
+                                         )
+                                  ),
+                                  column(width = 10,
+                                         plotOutput("invert_ts_plot", height = "550px")
+                                  )
+                                )
+                       )
                 )
               )
       )
@@ -185,13 +230,15 @@ ui <- dashboardPage(
 # ---- Server Logic ----
 server <- function(input, output, session) {
   
-  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL)
+  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL, invert_data = NULL)
   
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
       south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
       north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
+      inv_south_file <- str_c("Branch_Beating_", current_year, "_south.xlsx")
+      inv_north_file <- str_c("Branch_Beating_", current_year, "_north.xlsx")
       
       raw_adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
       
@@ -217,6 +264,11 @@ server <- function(input, output, session) {
           Male = NA_character_, 
           Female = NA_character_
         )
+      
+      vals$invert_data <- bind_rows(
+        load_invert_data(find_file_in_dropbox(inv_south_file), "South"),
+        load_invert_data(find_file_in_dropbox(inv_north_file), "North")
+      )
       
       site_region_map <- current %>% select(Site, Region) %>% distinct()
       
@@ -266,6 +318,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$refresh_data, { load_all_data() }, ignoreNULL = FALSE)
   
+  # ---- Bird App Server Logic ----
   observe({
     req(vals$master_current)
     data <- vals$master_current
@@ -294,10 +347,7 @@ server <- function(input, output, session) {
   })
   
   output$peak_season_box <- renderValueBox({
-    # req() ensures this only runs when data is available
     req(filtered_init())
-    
-    # Logic: Prioritize Hatch Date + 6/12; fallback to Incubation (fki) + 20/26
     peak_data <- filtered_init() %>%
       filter(!is.na(`day hatching first observed`) | !is.na(fki)) %>%
       mutate(
@@ -308,19 +358,13 @@ server <- function(input, output, session) {
                            `day hatching first observed` + 12, 
                            fki + 26)
       )
-    
-    # Handle cases where filters result in no valid dates
     if (nrow(peak_data) == 0) {
       return(valueBox("N/A", "Peak Season Window", icon = icon("clock"), color = "black"))
     }
-    
-    # Calculate medians based ONLY on the currently filtered rows
     avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
     avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
-    
     date_start <- format(as.Date(round(avg_peak_start), origin = str_c(current_year - 1, "-12-31")), "%d %b")
     date_end   <- format(as.Date(round(avg_peak_end), origin = str_c(current_year - 1, "-12-31")), "%d %b")
-    
     valueBox(
       value = paste(date_start, "-", date_end),
       subtitle = paste0("Peak Fieldwork Window (n = ", nrow(peak_data), ")"),
@@ -331,7 +375,6 @@ server <- function(input, output, session) {
   
   output$task_plot <- renderPlot({
     req(filtered_all(), input$task_date, length(input$task_types) > 0)
-    
     tasks_df <- filtered_all() %>%
       mutate(
         trip_type = case_match(region,
@@ -355,15 +398,11 @@ server <- function(input, output, session) {
       ) %>%
       pivot_longer(cols = any_of(task_levels), names_to = "Task", values_to = "is_due") %>%
       filter(is_due == TRUE, Task %in% input$task_types)
-    
     validate(need(nrow(tasks_df) > 0, "No tasks due for the selected criteria."))
-    
     tasks_df <- tasks_df %>%
       mutate(Task = factor(Task, levels = task_levels),
              sitebox = reorder(sitebox, `N to S`))
-    
     current_limits <- task_levels[task_levels %in% input$task_types]
-    
     ggplot(tasks_df, aes(sitebox, Task, fill = Task)) +
       geom_tile(color = "white", linewidth = 0.5) +
       scale_y_discrete(limits = rev(current_limits)) + 
@@ -424,43 +463,18 @@ server <- function(input, output, session) {
   
   observeEvent(input$bird_table_rows_selected, {
     req(vals$historic, vals$master_current)
-    
     selected_row <- filtered_all()[input$bird_table_rows_selected, ]
     selected_site <- selected_row$Site
     selected_box  <- selected_row$Box
-    
     current_box_data <- selected_row %>%
-      mutate(
-        Year = as.character(current_year),
-        `Lay Date` = as.character(`Lay Date`),
-        `Hatch Date` = as.character(`Hatch Date`),
-        `Clutch Size` = as.numeric(`Clutch Size`),
-        `Brood Size` = as.numeric(`Brood Size`),
-        `Number Fledged` = as.numeric(`Number Fledged`)
-      ) %>%
+      mutate(Year = as.character(current_year), `Lay Date` = as.character(`Lay Date`), `Hatch Date` = as.character(`Hatch Date`), `Clutch Size` = as.numeric(`Clutch Size`), `Brood Size` = as.numeric(`Brood Size`), `Number Fledged` = as.numeric(`Number Fledged`)) %>%
       select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`)
-    
     history_data <- vals$historic %>%
       filter(Site == selected_site, as.character(box) == selected_box) %>%
-      mutate(
-        `Lay Date` = if_else(is.na(lay_date_historic), "", 
-                             format(as.Date(round(lay_date_historic), origin = str_c(year - 1, "-12-31")), "%d %B %Y")),
-        `Hatch Date` = if_else(is.na(hatching_first_recorded), "", 
-                               format(as.Date(round(hatching_first_recorded), origin = str_c(year - 1, "-12-31")), "%d %B %Y")),
-        `Clutch Size` = as.numeric(cs),
-        `Brood Size` = as.numeric(v1alive),
-        `Number Fledged` = as.numeric(suc),
-        Year = as.character(year)
-      ) %>%
+      mutate(`Lay Date` = if_else(is.na(lay_date_historic), "", format(as.Date(round(lay_date_historic), origin = str_c(year - 1, "-12-31")), "%d %B %Y")), `Hatch Date` = if_else(is.na(hatching_first_recorded), "", format(as.Date(round(hatching_first_recorded), origin = str_c(year - 1, "-12-31")), "%d %B %Y")), `Clutch Size` = as.numeric(cs), `Brood Size` = as.numeric(v1alive), `Number Fledged` = as.numeric(suc), Year = as.character(year)) %>%
       select(Year, Species, Male, Female, `Lay Date`, `Clutch Size`, `Hatch Date`, `Brood Size`, `Number Fledged`)
-    
-    full_history <- bind_rows(current_box_data, history_data) %>%
-      arrange(desc(Year))
-    
-    output$history_table <- renderDT({
-      datatable(full_history, options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
-    })
-    
+    full_history <- bind_rows(current_box_data, history_data) %>% arrange(desc(Year))
+    output$history_table <- renderDT({ datatable(full_history, options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE) })
     toggleModal(session, "history_modal", toggle = "open")
     selectRows(dataTableProxy("bird_table"), NULL)
   })
@@ -472,7 +486,6 @@ server <- function(input, output, session) {
       filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       mutate(sort_date = Date, Date = format(Date, "%d %B %Y")) %>%
       relocate(sort_date, .after = last_col())
-    
     sort_col_idx <- ncol(ringing_df) - 1
     datatable(ringing_df, filter = 'top', rownames = FALSE,
               options = list(pageLength = 15, scrollX = TRUE, order = list(list(sort_col_idx, 'asc')),
@@ -482,7 +495,6 @@ server <- function(input, output, session) {
   output$nest_map <- renderLeaflet({
     map_df <- filtered_all() %>% filter(!is.na(lat) & !is.na(lon))
     if(nrow(map_df) == 0) return(NULL)
-    
     leaflet(map_df) %>%
       addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
       addProviderTiles(providers$OpenStreetMap, group = "Street Map") %>%
@@ -502,6 +514,73 @@ server <- function(input, output, session) {
         label = ~sitebox 
       ) %>%
       addLayersControl(baseGroups = c("Satellite", "Street Map"), options = layersControlOptions(collapsed = FALSE))
+  })
+  
+  # ---- Invertebrate App Server Logic ----
+  observe({
+    req(vals$invert_data)
+    data <- vals$invert_data
+    updateSelectInput(session, "inv_region_filter", choices = c("All", sort(unique(data$Region))), selected = input$inv_region_filter)
+    
+    choices_site <- if(input$inv_region_filter == "All") data else data %>% filter(Region == input$inv_region_filter)
+    updateSelectInput(session, "inv_site_filter", choices = c("All", sort(unique(choices_site$Site))), selected = input$inv_site_filter)
+    
+    updateSelectInput(session, "inv_host_filter", choices = c("All", sort(unique(data$`Host Species`))), selected = input$inv_host_filter)
+  })
+  
+  invert_all_taxa <- reactive({
+    req(vals$invert_data)
+    vals$invert_data %>%
+      filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
+      filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
+      filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
+      pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flys"), names_to = "Taxa", values_to = "Count")
+  })
+  
+  output$invert_bar <- renderPlotly({
+    req(invert_all_taxa())
+    plot_data <- invert_all_taxa() %>%
+      group_by(Taxa) %>%
+      summarise(Total = sum(Count, na.rm = TRUE)) %>%
+      mutate(Percentage = round(Total / sum(Total) * 100, 1),
+             Label = paste0(Percentage, "% ", Taxa))
+    
+    p <- plot_ly(plot_data, 
+                 x = ~Percentage, 
+                 y = 1, 
+                 type = 'bar', 
+                 orientation = 'h',
+                 color = ~Taxa, 
+                 colors = taxa_colors,
+                 text = ~Label,
+                 hoverinfo = 'text',
+                 showlegend = FALSE) %>%
+      layout(
+        barmode = 'stack',
+        xaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
+        yaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
+        margin = list(l = 0, r = 0, t = 0, b = 0),
+        height = 40
+      )
+    p
+  })
+  
+  output$invert_ts_plot <- renderPlot({
+    req(invert_all_taxa())
+    ts_data <- if(input$inv_taxa_filter == "All") {
+      invert_all_taxa() %>% group_by(Date) %>% summarise(Total_Count = sum(Count, na.rm = TRUE))
+    } else {
+      invert_all_taxa() %>% filter(Taxa == input$inv_taxa_filter) %>% group_by(Date) %>% summarise(Total_Count = sum(Count, na.rm = TRUE))
+    }
+    
+    bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
+    
+    ggplot(ts_data, aes(x = Date, y = Total_Count)) +
+      geom_col(fill = bar_color) +
+      scale_x_continuous(limits = input$inv_date_range, breaks = seq(91, 183, by = input$inv_x_breaks)) +
+      scale_y_continuous(limits = input$inv_count_range, breaks = seq(0, 1000, by = input$inv_y_breaks)) +
+      theme_classic() +
+      labs(x = "\nOrdinal Day", y = "Count\n")
   })
 }
 
