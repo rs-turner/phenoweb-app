@@ -208,8 +208,8 @@ ui <- dashboardPage(
                                                                selected = "Caterpillars"),
                                                    sliderInput("inv_date_range", "Ordinal Day (Range):", min = 91, max = 183, value = c(91, 183), ticks = FALSE),
                                                    numericInput("inv_x_breaks", "X-Axis Breaks:", value = 10, min = 1, max = 10),
-                                                   sliderInput("inv_count_range", "Count (Range):", min = 0, max = 300, value = c(0, 50), ticks = FALSE),
-                                                   numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 0.2, max = 100, step = 1),
+                                                   sliderInput("inv_count_range", "Count (Range):", min = 0, max = 500, value = c(0, 50), step = 1, ticks = FALSE),
+                                                   numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 0, max = 100),
                                                    radioButtons("inv_count_type", "Y-Axis Metric:",
                                                                 choices = c("Raw" = "raw", "Standardised" = "std"),
                                                                 selected = "raw")
@@ -571,24 +571,21 @@ server <- function(input, output, session) {
   # Observer to handle logical defaults for Y-Axis when switching metrics
   observeEvent(input$inv_count_type, {
     if (input$inv_count_type == "std") {
-      updateNumericInput(session, "inv_y_breaks", value = 0.2)
-      updateSliderInput(session, "inv_count_range", value = c(0, 1), min = 0, max = 3)
+      updateNumericInput(session, "inv_y_breaks", value = 0.02, step = 0.01, min = 0.01)
+      updateSliderInput(session, "inv_count_range", 
+                        value = c(0, 0.5), min = 0, max = 3, step = 0.01)
     } else {
-      updateNumericInput(session, "inv_y_breaks", value = 10)
-      updateSliderInput(session, "inv_count_range", value = c(0, 50), min = 0, max = 500)
+      updateNumericInput(session, "inv_y_breaks", value = 10, step = 1, min = 1)
+      updateSliderInput(session, "inv_count_range", 
+                        value = c(0, 50), min = 0, max = 500, step = 1)
     }
   })
   
   output$invert_ts_plot <- renderPlot({
     req(invert_all_taxa())
     
-    # Logic for Y-Axis breaks: Round to whole number UNLESS it is exactly 0.2
-    y_break_val <- input$inv_y_breaks
-    if (y_break_val != 0.2) {
-      y_break_val <- max(1, round(y_break_val))
-    }
+    y_break_val <- if(input$inv_count_type == "raw") round(input$inv_y_breaks) else input$inv_y_breaks
     
-    # Calculate unique samples per date to use as a denominator for standardization
     sample_counts <- vals$invert_data %>%
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
       filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
@@ -611,10 +608,16 @@ server <- function(input, output, session) {
     bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
     y_label <- if(input$inv_count_type == "std") "Standardised Count" else "Raw Count"
     
+    max_y <- input$inv_count_range[2]
+    
     ggplot(ts_data, aes(x = Date, y = plot_val)) +
       geom_col(fill = bar_color) +
       scale_x_continuous(limits = input$inv_date_range, breaks = seq(91, 183, by = input$inv_x_breaks)) +
-      scale_y_continuous(limits = input$inv_count_range, breaks = seq(0, 1000, by = y_break_val)) +
+      scale_y_continuous(
+        limits = input$inv_count_range, 
+        breaks = seq(0, max_y, by = y_break_val),
+        labels = if(input$inv_count_type == "raw") scales::label_number(accuracy = 1) else scales::label_number()
+      ) +
       theme_classic() +
       labs(x = "\nOrdinal Day", y = paste0(y_label, "\n"))
   })
