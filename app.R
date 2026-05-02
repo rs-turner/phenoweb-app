@@ -207,9 +207,12 @@ ui <- dashboardPage(
                                                                choices = c("All", "Caterpillars", "Beetles", "Spiders", "St. Marks Flys"),
                                                                selected = "Caterpillars"),
                                                    sliderInput("inv_date_range", "Ordinal Day (Range):", min = 91, max = 183, value = c(91, 183), ticks = FALSE),
-                                                   numericInput("inv_x_breaks", "X-Axis Breaks:", value = 10, min = 1),
+                                                   numericInput("inv_x_breaks", "X-Axis Breaks:", value = 10, min = 1, max = 10),
                                                    sliderInput("inv_count_range", "Count (Range):", min = 0, max = 300, value = c(0, 50), ticks = FALSE),
-                                                   numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 1)
+                                                   numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 0.2, max = 100, step = 1),
+                                                   radioButtons("inv_count_type", "Y-Axis Metric:",
+                                                                choices = c("Raw" = "raw", "Standardised" = "std"),
+                                                                selected = "raw")
                                          )
                                   ),
                                   column(width = 10,
@@ -565,22 +568,52 @@ server <- function(input, output, session) {
     p
   })
   
+  observeEvent(input$inv_count_type, {
+    if (input$inv_count_type == "std") {
+      updateNumericInput(session, "inv_y_breaks", value = 0.2)
+      updateSliderInput(session, "inv_count_range", value = c(0, 1), min = 0, max = 5)
+    } else {
+      updateNumericInput(session, "inv_y_breaks", value = 10)
+      updateSliderInput(session, "inv_count_range", value = c(0, 50), min = 0, max = 500)
+    }
+  })
+  
   output$invert_ts_plot <- renderPlot({
     req(invert_all_taxa())
-    ts_data <- if(input$inv_taxa_filter == "All") {
-      invert_all_taxa() %>% group_by(Date) %>% summarise(Total_Count = sum(Count, na.rm = TRUE))
-    } else {
-      invert_all_taxa() %>% filter(Taxa == input$inv_taxa_filter) %>% group_by(Date) %>% summarise(Total_Count = sum(Count, na.rm = TRUE))
+    
+    y_break_val <- input$inv_y_breaks
+    if (y_break_val != 0.2) {
+      y_break_val <- max(1, round(y_break_val))
     }
     
-    bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
+    sample_counts <- vals$invert_data %>%
+      filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
+      filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
+      filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
+      group_by(Date) %>%
+      summarise(n_samples = n(), .groups = "drop")
     
-    ggplot(ts_data, aes(x = Date, y = Total_Count)) +
+    ts_data <- invert_all_taxa()
+    
+    if(input$inv_taxa_filter != "All") {
+      ts_data <- ts_data %>% filter(Taxa == input$inv_taxa_filter)
+    }
+    
+    ts_data <- ts_data %>%
+      group_by(Date) %>%
+      summarise(Total_Count = sum(Count, na.rm = TRUE), .groups = "drop") %>%
+      left_join(sample_counts, by = "Date") %>%
+      mutate(plot_val = if_else(input$inv_count_type == "std", Total_Count / n_samples, as.numeric(Total_Count)))
+    
+    bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
+    y_label <- if(input$inv_count_type == "std") "Standardised Count (Count / Samples)" else "Raw Count"
+    
+    ggplot(ts_data, aes(x = Date, y = plot_val)) +
       geom_col(fill = bar_color) +
       scale_x_continuous(limits = input$inv_date_range, breaks = seq(91, 183, by = input$inv_x_breaks)) +
-      scale_y_continuous(limits = input$inv_count_range, breaks = seq(0, 1000, by = input$inv_y_breaks)) +
+      scale_y_continuous(limits = input$inv_count_range, breaks = seq(0, 1000, by = y_break_val)) +
       theme_classic() +
-      labs(x = "\nOrdinal Day", y = "Count\n")
+      labs(x = "\nOrdinal Day", y = paste0(y_label, "\n"))
   })
 }
 
