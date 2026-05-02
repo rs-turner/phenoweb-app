@@ -568,10 +568,11 @@ server <- function(input, output, session) {
     p
   })
   
+  # Observer to handle logical defaults for Y-Axis when switching metrics
   observeEvent(input$inv_count_type, {
     if (input$inv_count_type == "std") {
       updateNumericInput(session, "inv_y_breaks", value = 0.2)
-      updateSliderInput(session, "inv_count_range", value = c(0, 1), min = 0, max = 5)
+      updateSliderInput(session, "inv_count_range", value = c(0, 1), min = 0, max = 3)
     } else {
       updateNumericInput(session, "inv_y_breaks", value = 10)
       updateSliderInput(session, "inv_count_range", value = c(0, 50), min = 0, max = 500)
@@ -581,11 +582,13 @@ server <- function(input, output, session) {
   output$invert_ts_plot <- renderPlot({
     req(invert_all_taxa())
     
+    # Logic for Y-Axis breaks: Round to whole number UNLESS it is exactly 0.2
     y_break_val <- input$inv_y_breaks
     if (y_break_val != 0.2) {
       y_break_val <- max(1, round(y_break_val))
     }
     
+    # Calculate unique samples per date to use as a denominator for standardization
     sample_counts <- vals$invert_data %>%
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
       filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
@@ -606,7 +609,7 @@ server <- function(input, output, session) {
       mutate(plot_val = if_else(input$inv_count_type == "std", Total_Count / n_samples, as.numeric(Total_Count)))
     
     bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
-    y_label <- if(input$inv_count_type == "std") "Standardised Count (Count / Samples)" else "Raw Count"
+    y_label <- if(input$inv_count_type == "std") "Standardised Count" else "Raw Count"
     
     ggplot(ts_data, aes(x = Date, y = plot_val)) +
       geom_col(fill = bar_color) +
