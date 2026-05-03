@@ -40,7 +40,7 @@ taxa_colors <- c(
   "Caterpillars"   = "#2E86C1", 
   "Beetles"        = "#F1C40F", 
   "Spiders"        = "#8E44AD", 
-  "St. Marks Flys" = "#27AE60",
+  "St. Marks Flies" = "#27AE60",
   "All"            = "#555555"
 )
 
@@ -69,7 +69,7 @@ load_bird_data <- function(path, region_name) {
 
 load_invert_data <- function(path, region_name) {
   read_excel(path, sheet = 1) %>%
-    rename(`Host Species` = Species, `St. Marks Flys` = Bibio, Site = Site) %>%
+    rename(`Host Species` = Species, `St. Marks Flies` = Bibio, Site = Site) %>%
     mutate(Region = region_name)
 }
 
@@ -204,7 +204,7 @@ ui <- dashboardPage(
                                          wellPanel(class = "planner-sidebar", style = "min-height: 550px;",
                                                    h4("Plot Settings"),
                                                    selectInput("inv_taxa_filter", "Invertebrate Group:", 
-                                                               choices = c("All", "Caterpillars", "Beetles", "Spiders", "St. Marks Flys"),
+                                                               choices = c("All", "Caterpillars", "Beetles", "Spiders", "St. Marks Flies"),
                                                                selected = "Caterpillars"),
                                                    sliderInput("inv_date_range", "Ordinal Day (Range):", min = 91, max = 183, value = c(91, 183), ticks = FALSE),
                                                    numericInput("inv_x_breaks", "X-Axis Breaks:", value = 10, min = 1, max = 10),
@@ -537,7 +537,7 @@ server <- function(input, output, session) {
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
       filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
       filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
-      pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flys"), names_to = "Taxa", values_to = "Count")
+      pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flies"), names_to = "Taxa", values_to = "Count")
   })
   
   output$invert_bar <- renderPlotly({
