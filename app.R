@@ -362,7 +362,7 @@ server <- function(input, output, session) {
                            fki + 26)
       )
     if (nrow(peak_data) == 0) {
-      return(valueBox("N/A", "Peak Season Window", icon = icon("clock"), color = "black"))
+      return(valueBox("N/A", paste0("Peak Fieldwork Window (n = ", nrow(peak_data), ")"), icon = icon("clock"), color = "orange"))
     }
     avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
     avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
