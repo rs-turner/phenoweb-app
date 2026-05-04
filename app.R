@@ -140,25 +140,20 @@ ui <- dashboardPage(
                 box(title = "Filters", width = 12, status = "primary", solidHeader = TRUE,
                     column(4, selectInput("region_filter", "Region:", choices = "All")),
                     column(4, selectInput("site_filter", "Site:", choices = "All")),
-                    column(4, selectInput("species_filter", "Species:", choices = "All"))
-                )
-              ),
+                    column(4, selectInput("species_filter", "Species:", choices = "All")))),
               fluidRow(
                 valueBoxOutput("nests_initiated", width = 3),
                 valueBoxOutput("avg_lay_date", width = 3),
                 valueBoxOutput("avg_clutch_size", width = 3),
-                valueBoxOutput("pulli_ringed_box", width = 3)
-              ),
+                valueBoxOutput("pulli_ringed_box", width = 3)),
               fluidRow(
                 valueBoxOutput("peak_season_box", width = 3),
                 valueBoxOutput("hist_avg_lay", width = 3),
                 valueBoxOutput("hist_avg_cs", width = 3),
-                valueBoxOutput("total_fledge", width = 3) 
-              ),
+                valueBoxOutput("total_fledge", width = 3) ),
               fluidRow(
                 tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
                        tabPanel("Nest Summary Table", icon = icon("table"), DTOutput("bird_table")),
-                       
                        tabPanel("Day Planner", icon = icon("calendar-check"), 
                                 fluidRow(class = "tight-row", 
                                          column(width = 2,
@@ -167,29 +162,17 @@ ui <- dashboardPage(
                                                           numericInput("task_date", "Ordinal Day:", value = as.numeric(format(Sys.Date(), "%j")), min = 91, max = 183, width = "100px"), 
                                                           checkboxGroupInput("task_types", "Tasks to Show:", 
                                                                              choices = task_levels, 
-                                                                             selected = task_levels[1:11])
-                                                )
-                                         ),
+                                                                             selected = task_levels[1:11]))),
                                          column(width = 10,
-                                                plotOutput("task_plot", height = "550px")
-                                         )
-                                )
-                       ),
-                       
+                                                plotOutput("task_plot", height = "550px")))),
                        tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
-                       tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))
-                )
-              )
-      ),
+                       tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))))),
       
       # ---- APP 2: TREE DATA ----
       tabItem(tabName = "tree_data",
               fluidRow(
                 box(title = "Tree Phenology", width = 12, status = "success",
-                    p("Coming soon (probably).")
-                )
-              )
-      ),
+                    p("Coming soon (probably).")))),
       
       # ---- APP 3: INVERTEBRATE DATA ----
       tabItem(tabName = "invert_data",
@@ -197,14 +180,10 @@ ui <- dashboardPage(
                 box(title = "Filters", width = 12, status = "primary", solidHeader = TRUE,
                     column(4, selectInput("inv_region_filter", "Region:", choices = "All")),
                     column(4, selectInput("inv_site_filter", "Site:", choices = "All")),
-                    column(4, selectInput("inv_host_filter", "Host Species:", choices = "All"))
-                )
-              ),
+                    column(4, selectInput("inv_host_filter", "Host Species:", choices = "All")))),
               fluidRow(
                 box(title = "", width = 12, status = "info",
-                    plotlyOutput("invert_bar", height = "80px")
-                )
-              ),
+                    plotlyOutput("invert_bar", height = "80px"))),
               fluidRow(
                 tabBox(title = "Exploration Tools", width = 12, id = "tab_invert",
                        tabPanel("Invertebrate Abundance Plot", icon = icon("chart-bar"),
@@ -221,23 +200,11 @@ ui <- dashboardPage(
                                                    numericInput("inv_y_breaks", "Y-Axis Breaks:", value = 10, min = 0, max = 100),
                                                    radioButtons("inv_count_type", "Y-Axis Metric:",
                                                                 choices = c("Raw" = "raw", "Standardised" = "std"),
-                                                                selected = "raw")
-                                         )
-                                  ),
+                                                                selected = "raw"))),
                                   column(width = 10,
-                                         plotOutput("invert_ts_plot", height = "550px")
-                                  )
-                                )
-                       )
-                )
-              )
-      )
-    ),
-    
+                                         plotOutput("invert_ts_plot", height = "550px")))))))),
     bsModal(id = "history_modal", title = "Nest Box History", trigger = "none", size = "large",
-            DTOutput("history_table"))
-  )
-)
+            DTOutput("history_table"))))
 
 # ---- Server Logic ----
 server <- function(input, output, session) {
@@ -267,8 +234,7 @@ server <- function(input, output, session) {
       
       current <- bind_rows(
         load_bird_data(find_file_in_dropbox(south_file), "south"),
-        load_bird_data(find_file_in_dropbox(north_file), "north")
-      ) %>%
+        load_bird_data(find_file_in_dropbox(north_file), "north")) %>%
         mutate(
           Region = str_to_title(region), Site = site, Box = as.character(box), 
           Species = case_match(species, "bluti" ~ "Blue Tit", "coati" ~ "Coal Tit", "greti" ~ "Great Tit", .default = species),
@@ -277,8 +243,7 @@ server <- function(input, output, session) {
           `Clutch Size` = as.numeric(cs), `Brood Size` = as.numeric(v1alive), `Number Fledged` = as.numeric(suc),
           lay_date_numeric = latest_fed,
           Male = NA_character_, 
-          Female = NA_character_
-        )
+          Female = NA_character_)
       
       vals$pulli_count <- 0
       vals$pulli_nests <- 0
@@ -298,8 +263,7 @@ server <- function(input, output, session) {
       
       vals$invert_data <- bind_rows(
         load_invert_data(find_file_in_dropbox(inv_south_file), "South"),
-        load_invert_data(find_file_in_dropbox(inv_north_file), "North")
-      )
+        load_invert_data(find_file_in_dropbox(inv_north_file), "North"))
       
       site_region_map <- current %>% select(Site, Region) %>% distinct()
       
@@ -390,7 +354,7 @@ server <- function(input, output, session) {
                            fki + 26)
       )
     if (nrow(peak_data) == 0) {
-      return(valueBox("N/A", "Peak Fieldwork Window", icon = icon("clock"), color = "navy"))
+      return(valueBox("N/A", "Peak Fieldwork Window", icon = icon("arrow-trend-up"), color = "navy"))
     }
     avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
     avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
@@ -585,6 +549,7 @@ server <- function(input, output, session) {
       mutate(Percentage = round(Total / sum(Total) * 100, 1),
              Label = paste0(Percentage, "% ", Taxa))
     
+    # Move height here:
     p <- plot_ly(plot_data, 
                  x = ~Percentage, 
                  y = 1, 
@@ -594,13 +559,13 @@ server <- function(input, output, session) {
                  colors = taxa_colors,
                  text = ~Label,
                  hoverinfo = 'text',
-                 showlegend = FALSE) %>%
+                 showlegend = FALSE,
+                 height = 80) %>% # Defined here instead of layout
       layout(
         barmode = 'stack',
         xaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
         yaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
-        margin = list(l = 0, r = 0, t = 0, b = 0),
-        height = 40
+        margin = list(l = 0, r = 0, t = 0, b = 0)
       )
     p
   })
@@ -639,19 +604,23 @@ server <- function(input, output, session) {
       group_by(Date) %>%
       summarise(Total_Count = sum(Count, na.rm = TRUE), .groups = "drop") %>%
       left_join(sample_counts, by = "Date") %>%
-      mutate(plot_val = if_else(input$inv_count_type == "std", Total_Count / n_samples, as.numeric(Total_Count)))
+      # FIXED LOGIC HERE:
+      mutate(plot_val = if(input$inv_count_type == "std") {
+        Total_Count / n_samples 
+      } else { 
+        as.numeric(Total_Count) 
+      })
     
+    # ... rest of your ggplot code ...
     bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
     y_label <- if(input$inv_count_type == "std") "Standardised Count" else "Raw Count"
-    
-    max_y <- input$inv_count_range[2]
     
     ggplot(ts_data, aes(x = Date, y = plot_val)) +
       geom_col(fill = bar_color) +
       scale_x_continuous(limits = input$inv_date_range, breaks = seq(91, 183, by = input$inv_x_breaks)) +
       scale_y_continuous(
         limits = input$inv_count_range, 
-        breaks = seq(0, max_y, by = y_break_val),
+        breaks = seq(0, input$inv_count_range[2], by = y_break_val),
         labels = if(input$inv_count_type == "raw") scales::label_number(accuracy = 1) else scales::label_number()
       ) +
       theme_classic() +
