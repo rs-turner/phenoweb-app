@@ -23,25 +23,25 @@ task_levels <- c("N1 Check", "NL Check", "First Egg Check",
                  "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
 
 task_colors <- c(
-  "N1 Check"                 = "#E41A1C", 
-  "NL Check"                 = "#377EB8", 
-  "First Egg Check"          = "#4DAF4A", 
-  "First Incubation Check"   = "#984EA3", 
-  "Confirm Incubation Check" = "#FF7F00", 
-  "Hatch Check"              = "#FDB462", 
-  "V1"                       = "#A65628", 
-  "Catch Male"               = "#F781BF", 
-  "Catch Female"             = "#999999", 
-  "V2"                       = "#66C2A5", 
-  "Fledge Check"             = "#8DA0CB"  
+  "N1 Check" = "#D1E9F6", 
+  "NL Check" = "#A9D6E5", 
+  "First Egg Check" = "#89C2D9", 
+  "First Incubation Check" = "#61A5C2", 
+  "Confirm Incubation Check" = "#468FAF", 
+  "Hatch Check" = "#2C7DA0", 
+  "V1" = "#2A6F97", 
+  "Catch Male" = "#014F86", 
+  "Catch Female" = "#01497C", 
+  "V2" = "#013A63", 
+  "Fledge Check" = "#012A4A"
 )
 
 taxa_colors <- c(
-  "Caterpillars"   = "#2E86C1", 
-  "Beetles"        = "#F1C40F", 
-  "Spiders"        = "#8E44AD", 
-  "St. Marks Flies" = "#27AE60",
-  "All"            = "#555555"
+  "Caterpillars" = "#01497C", 
+  "Beetles" = "#2C7DA0", 
+  "Spiders" = "#61A5C2", 
+  "St. Marks Flies" = "#A9D6E5", 
+  "All" = "#012A4A"
 )
 
 # ---- Utility Functions for Data Access ----
@@ -123,6 +123,14 @@ ui <- dashboardPage(
       .tight-row > .col-sm-10 {
         padding-left: 1px !important;
       }
+      .small-box .icon-large {
+      opacity: 0.3 !important; 
+      color: white !important; 
+      }
+      .small-box h3, .small-box p {
+      opacity: 1.0 !important;
+      color: white !important;
+      }
     '))),
     
     tabItems(
@@ -139,12 +147,13 @@ ui <- dashboardPage(
                 valueBoxOutput("nests_initiated", width = 3),
                 valueBoxOutput("avg_lay_date", width = 3),
                 valueBoxOutput("avg_clutch_size", width = 3),
-                valueBoxOutput("total_fledge", width = 3) 
+                valueBoxOutput("pulli_ringed_box", width = 3)
               ),
               fluidRow(
-                valueBoxOutput("peak_season_box", width = 4),
-                valueBoxOutput("hist_avg_lay", width = 4),
-                valueBoxOutput("hist_avg_cs", width = 4)
+                valueBoxOutput("peak_season_box", width = 3),
+                valueBoxOutput("hist_avg_lay", width = 3),
+                valueBoxOutput("hist_avg_cs", width = 3),
+                valueBoxOutput("total_fledge", width = 3) 
               ),
               fluidRow(
                 tabBox(title = "Exploration Tools", width = 12, id = "tab_main",
@@ -233,7 +242,7 @@ ui <- dashboardPage(
 # ---- Server Logic ----
 server <- function(input, output, session) {
   
-  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL, invert_data = NULL)
+  vals <- reactiveValues(master_current = NULL, historic = NULL, ringing_data = NULL, coords = NULL, adult_rings = NULL, invert_data = NULL, pulli_count = 0, pulli_nests = 0)
   
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
@@ -242,6 +251,9 @@ server <- function(input, output, session) {
       north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
       inv_south_file <- str_c("Branch_Beating_", current_year, "_south.xlsx")
       inv_north_file <- str_c("Branch_Beating_", current_year, "_north.xlsx")
+      
+      nestlings_south_file <- str_c("Nestlings_", current_year, "_south.xlsx")
+      nestlings_north_file <- str_c("Nestlings_", current_year, "_north.xlsx")
       
       raw_adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
       
@@ -267,6 +279,22 @@ server <- function(input, output, session) {
           Male = NA_character_, 
           Female = NA_character_
         )
+      
+      vals$pulli_count <- 0
+      vals$pulli_nests <- 0
+      tryCatch({
+        p_south <- read_excel(find_file_in_dropbox(nestlings_south_file))
+        p_north <- read_excel(find_file_in_dropbox(nestlings_north_file))
+        combined_pulli <- bind_rows(p_south, p_north) %>%
+          filter(!is.na(ring), tolower(ring) != "unringed")
+        
+        vals$pulli_count <- nrow(combined_pulli)
+        vals$pulli_nests <- combined_pulli %>% select(site, box) %>% distinct() %>% nrow()
+        
+      }, error = function(e) {
+        vals$pulli_count <- 0
+        vals$pulli_nests <- 0
+      })
       
       vals$invert_data <- bind_rows(
         load_invert_data(find_file_in_dropbox(inv_south_file), "South"),
@@ -362,7 +390,7 @@ server <- function(input, output, session) {
                            fki + 26)
       )
     if (nrow(peak_data) == 0) {
-      return(valueBox("N/A", paste0("Peak Fieldwork Window (n = ", nrow(peak_data), ")"), icon = icon("clock"), color = "orange"))
+      return(valueBox("N/A", "Peak Fieldwork Window", icon = icon("clock"), color = "navy"))
     }
     avg_peak_start <- median(peak_data$ring_day, na.rm = TRUE)
     avg_peak_end   <- median(peak_data$proc_day, na.rm = TRUE)
@@ -372,7 +400,7 @@ server <- function(input, output, session) {
       value = paste(date_start, "-", date_end),
       subtitle = paste0("Peak Fieldwork Window (n = ", nrow(peak_data), ")"),
       icon = icon("arrow-trend-up"),
-      color = "orange"
+      color = "navy"
     )
   })
   
@@ -422,39 +450,48 @@ server <- function(input, output, session) {
   output$nests_initiated <- renderValueBox({
     n_init <- nrow(filtered_init()); total <- nrow(filtered_all())
     perc <- if(total > 0) round((n_init / total) * 100, 1) else 0
-    valueBox(paste0(n_init, " (", perc, "%)"), "Nests Initiated", icon = icon("feather-alt"), color = "blue")
+    valueBox(paste0(n_init, " (", perc, "%)"), "Nests Initiated", icon = icon("feather-alt"), color = "navy")
   })
   
   output$avg_lay_date <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(lay_date_numeric))
     mean_val <- mean(valid$lay_date_numeric, na.rm = TRUE)
     display <- if(is.nan(mean_val)) "N/A" else format(as.Date(round(mean_val), origin = str_c(current_year - 1, "-12-31")), "%d %B")
-    valueBox(display, paste0(current_year, " Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("calendar"), color = "green")
+    valueBox(display, paste0(current_year, " Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("calendar"), color = "aqua")
   })
   
   output$avg_clutch_size <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(`Clutch Size`))
     val <- mean(valid$`Clutch Size`, na.rm = TRUE)
-    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0(current_year, " Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("egg"), color = "purple")
+    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0(current_year, " Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("egg"), color = "navy")
+  })
+  
+  output$pulli_ringed_box <- renderValueBox({
+    valueBox(
+      vals$pulli_count, 
+      paste0(current_year, " Total Pulli Ringed (n = ", vals$pulli_nests, ")"), 
+      icon = icon("dove"), 
+      color = "aqua"
+    )
   })
   
   output$total_fledge <- renderValueBox({
     valid <- filtered_init() %>% filter(!is.na(`Number Fledged`))
     total_val <- sum(valid$`Number Fledged`, na.rm = TRUE)
-    valueBox(total_val, paste0(current_year, " Total Fledglings (n = ", nrow(valid), ")"), icon = icon("dove"), color = "yellow")
+    valueBox(total_val, paste0(current_year, " Total Fledglings (n = ", nrow(valid), ")"), icon = icon("dove"), color = "aqua")
   })
   
   output$hist_avg_lay <- renderValueBox({
     valid <- filtered_hist() %>% filter(!is.na(lay_date_historic))
     hist_ord <- mean(valid$lay_date_historic, na.rm = TRUE)
     display <- if(is.nan(hist_ord)) "N/A" else format(as.Date(round(hist_ord), origin = str_c(current_year - 1, "-12-31")), "%d %B")
-    valueBox(display, paste0("Historic Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("history"), color = "teal")
+    valueBox(display, paste0("Historic Avg Lay Date (n = ", nrow(valid), ")"), icon = icon("calendar"), color = "aqua")
   })
   
   output$hist_avg_cs <- renderValueBox({
     valid <- filtered_hist() %>% filter(!is.na(cs))
     val <- mean(as.numeric(valid$cs), na.rm = TRUE)
-    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("history"), color = "maroon")
+    valueBox(if(is.nan(val)) "N/A" else round(val, 1), paste0("Historic Avg Clutch Size (n = ", nrow(valid), ")"), icon = icon("egg"), color = "navy")
   })
   
   output$bird_table <- renderDT({
@@ -503,12 +540,12 @@ server <- function(input, output, session) {
       addProviderTiles(providers$OpenStreetMap, group = "Street Map") %>%
       addCircleMarkers(
         lng = ~lon, lat = ~lat, radius = 7, color = "white", weight = 1,
-        fillColor = ~if_else(!is.na(n1), "#2196F3", "#F44336"), fillOpacity = 0.8,
+        fillColor = ~if_else(!is.na(n1), "#2196F3", "#01497C"), fillOpacity = 0.8,
         popup = ~paste0("<b>Box ID:</b> ", sitebox, 
                         "<br><b>Status:</b> ", if_else(!is.na(n1), "Occupied", "Empty"), 
                         "<br><b>Species:</b> ", replace_na(as.character(Species), ""), 
-                        "<br><b>Male:</b> ", replace_na(as.character(Male), ""),
-                        "<br><b>Female:</b> ", replace_na(as.character(Female), ""),
+                        "<br><b>Male:</b> ", replace_na(as.character(Male), ""), 
+                        "<br><b>Female:</b> ", replace_na(as.character(Female), ""), 
                         "<br><b>Lay Date:</b> ", replace_na(as.character(`Lay Date`), ""), 
                         "<br><b>Clutch Size:</b> ", replace_na(as.character(`Clutch Size`), ""), 
                         "<br><b>Hatch Date:</b> ", replace_na(as.character(`Hatch Date`), ""), 
@@ -568,7 +605,6 @@ server <- function(input, output, session) {
     p
   })
   
-  # Observer to handle logical defaults for Y-Axis when switching metrics
   observeEvent(input$inv_count_type, {
     if (input$inv_count_type == "std") {
       updateNumericInput(session, "inv_y_breaks", value = 0.02, step = 0.01, min = 0.01)
