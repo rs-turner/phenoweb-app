@@ -23,26 +23,12 @@ task_levels <- c("N1 Check", "NL Check", "First Egg Check",
                  "Hatch Check", "V1", "Catch Male", "Catch Female", "V2", "Fledge Check")
 
 task_colors <- c(
-  "N1 Check" = "#D1E9F6", 
-  "NL Check" = "#A9D6E5", 
-  "First Egg Check" = "#89C2D9", 
-  "First Incubation Check" = "#61A5C2", 
-  "Confirm Incubation Check" = "#468FAF", 
-  "Hatch Check" = "#2C7DA0", 
-  "V1" = "#2A6F97", 
-  "Catch Male" = "#014F86", 
-  "Catch Female" = "#01497C", 
-  "V2" = "#013A63", 
-  "Fledge Check" = "#012A4A"
-)
+  "N1 Check" = "#D1E9F6", "NL Check" = "#A9D6E5", "First Egg Check" = "#89C2D9", "First Incubation Check" = "#61A5C2", 
+  "Confirm Incubation Check" = "#468FAF", "Hatch Check" = "#2C7DA0", "V1" = "#2A6F97", "Catch Male" = "#014F86", 
+  "Catch Female" = "#01497C", "V2" = "#013A63", "Fledge Check" = "#012A4A")
 
 taxa_colors <- c(
-  "Caterpillars" = "#01497C", 
-  "Beetles" = "#2C7DA0", 
-  "Spiders" = "#61A5C2", 
-  "St. Marks Flies" = "#A9D6E5", 
-  "All" = "#012A4A"
-)
+  "Caterpillars" = "#01497C", "Beetles" = "#2C7DA0", "Spiders" = "#61A5C2", "St. Marks Flies" = "#A9D6E5", "All" = "#012A4A")
 
 # ---- Utility Functions for Data Access ----
 get_dropbox_path <- function() {
@@ -141,6 +127,7 @@ ui <- dashboardPage(
                     column(4, selectInput("region_filter", "Region:", choices = "All")),
                     column(4, selectInput("site_filter", "Site:", choices = "All")),
                     column(4, selectInput("species_filter", "Species:", choices = "All")))),
+              box(title = NULL, width = 12, status = "info", plotlyOutput("intensity_plot", height = "100px")),
               fluidRow(
                 valueBoxOutput("nests_initiated", width = 3),
                 valueBoxOutput("avg_lay_date", width = 3),
@@ -331,6 +318,31 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
+  # Intensity Plot Data
+  intensity_data <- reactive({
+    req(filtered_all())
+    df <- filtered_all()
+    days <- seq(91, 183)
+    
+    map_df(days, function(d) {
+      count <- df %>%
+        filter(is.na(suc) | (as.numeric(suc) != 0)) %>%
+        mutate(
+          est_hatch = coalesce(`day hatching first observed`, fki + 14),
+          est_v1_date = coalesce(v1date, fki + 20),
+          v1_due     = (est_hatch + 6) <= d & is.na(v1alive),
+          male_due   = (est_v1_date + 4) <= d & is.na(male) & is.na(suc),
+          female_due = (est_v1_date + 4) <= d & is.na(female) & is.na(suc),
+          v2_due     = (est_v1_date + 6) <= d & is.na(v2alive) & is.na(suc)
+        ) %>%
+        summarise(total = sum(v1_due | male_due | female_due | v2_due, na.rm = TRUE)) %>%
+        pull(total)
+      
+      date_label <- format(as.Date(d - 1, origin = str_c(current_year, "-01-01")), "%d %B")
+      tibble(Day = d, Intensity = count, DateLabel = date_label)
+    })
+  })
+  
   filtered_init <- reactive({ filtered_all() %>% filter(!is.na(n1)) })
   
   filtered_hist <- reactive({
@@ -339,6 +351,34 @@ server <- function(input, output, session) {
       filter(if(input$region_filter != "All") Region == input$region_filter else TRUE) %>%
       filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
+  })
+  
+  # Render Intensity Plot
+  output$intensity_plot <- renderPlotly({
+    req(intensity_data())
+    today_ordinal <- as.numeric(format(Sys.Date(), "%j"))
+    
+    plot_ly(intensity_data(), x = ~Day, y = ~Intensity, type = 'scatter', mode = 'lines',
+            fill = 'tozeroy', fillcolor = 'rgba(1, 73, 124, 0.2)',
+            line = list(color = "#01497C", width = 2),
+            hoverinfo = 'text',
+            text = ~paste("Date:", DateLabel, "<br>Estimated Intensity Metric:", Intensity)) %>%
+      layout(
+        xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
+        yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
+        margin = list(l = 5, r = 5, t = 5, b = 5),
+        paper_bgcolor = 'rgba(0,0,0,0)',
+        plot_bgcolor = 'rgba(0,0,0,0)',
+        shapes = list(
+          list(
+            type = "line",
+            x0 = today_ordinal, x1 = today_ordinal,
+            y0 = 0, y1 = 1, yref = "paper",
+            line = list(color = "gray", width = 1.5, dash = "dash")
+          )
+        )
+      ) %>%
+      config(displayModeBar = FALSE)
   })
   
   output$peak_season_box <- renderValueBox({
@@ -536,7 +576,7 @@ server <- function(input, output, session) {
     req(vals$invert_data)
     vals$invert_data %>%
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
-      filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
+      filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
       pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flies"), names_to = "Taxa", values_to = "Count")
   })
@@ -549,7 +589,6 @@ server <- function(input, output, session) {
       mutate(Percentage = round(Total / sum(Total) * 100, 1),
              Label = paste0(Percentage, "% ", Taxa))
     
-    # Move height here:
     p <- plot_ly(plot_data, 
                  x = ~Percentage, 
                  y = 1, 
@@ -560,7 +599,7 @@ server <- function(input, output, session) {
                  text = ~Label,
                  hoverinfo = 'text',
                  showlegend = FALSE,
-                 height = 80) %>% # Defined here instead of layout
+                 height = 80) %>% 
       layout(
         barmode = 'stack',
         xaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
@@ -589,7 +628,7 @@ server <- function(input, output, session) {
     
     sample_counts <- vals$invert_data %>%
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
-      filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>%
+      filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
       group_by(Date) %>%
       summarise(n_samples = n(), .groups = "drop")
@@ -604,14 +643,12 @@ server <- function(input, output, session) {
       group_by(Date) %>%
       summarise(Total_Count = sum(Count, na.rm = TRUE), .groups = "drop") %>%
       left_join(sample_counts, by = "Date") %>%
-      # FIXED LOGIC HERE:
       mutate(plot_val = if(input$inv_count_type == "std") {
         Total_Count / n_samples 
       } else { 
         as.numeric(Total_Count) 
       })
     
-    # ... rest of your ggplot code ...
     bar_color <- if(input$inv_taxa_filter == "All") taxa_colors["All"] else taxa_colors[input$inv_taxa_filter]
     y_label <- if(input$inv_count_type == "std") "Standardised Count" else "Raw Count"
     
