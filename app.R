@@ -353,18 +353,28 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
-  # Render Intensity Plot
   output$intensity_plot <- renderPlotly({
     req(intensity_data())
     today_ordinal <- as.numeric(format(Sys.Date(), "%j"))
     
-    plot_ly(intensity_data(), x = ~Day, y = ~Intensity, type = 'scatter', mode = 'lines',
-            fill = 'tozeroy', fillcolor = 'rgba(1, 73, 124, 0.2)',
-            line = list(color = "#01497C", width = 2),
-            hoverinfo = 'text',
-            text = ~paste("Date:", DateLabel, "<br>Estimated Intensity Metric:", Intensity)) %>%
+    plot_ly(intensity_data(), x = ~Day, y = ~Intensity) %>%
+      add_trace(
+        type = 'scatter', 
+        mode = 'lines+marker', # Keep the main trace as lines
+        fill = 'tozeroy', 
+        fillcolor = 'rgba(1, 73, 124, 0.2)',
+        line = list(color = "#01497C", width = 2),
+        hoverinfo = 'text',
+        text = ~paste("Date:", DateLabel, "<br>Estimated Intensity Metric:", Intensity)
+      ) %>%
       layout(
-        xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
+        # 'x' hovermode makes the point snap to the closest x-value (Date)
+        hovermode = 'x', 
+        xaxis = list(
+          showgrid = FALSE, 
+          zeroline = FALSE, 
+          showticklabels = FALSE, 
+          title = ""),
         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
         margin = list(l = 5, r = 5, t = 5, b = 5),
         paper_bgcolor = 'rgba(0,0,0,0)',
@@ -576,9 +586,10 @@ server <- function(input, output, session) {
     req(vals$invert_data)
     vals$invert_data %>%
       filter(if(input$inv_region_filter != "All") Region == input$inv_region_filter else TRUE) %>%
-      filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
+      filter(if(input$inv_site_filter != "All") Site == input$inv_site_filter else TRUE) %>% 
       filter(if(input$inv_host_filter != "All") `Host Species` == input$inv_host_filter else TRUE) %>%
-      pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flies"), names_to = "Taxa", values_to = "Count")
+      pivot_longer(cols = c("Caterpillars", "Beetles", "Spiders", "St. Marks Flies"), 
+                   names_to = "Taxa", values_to = "Count")
   })
   
   output$invert_bar <- renderPlotly({
@@ -587,7 +598,7 @@ server <- function(input, output, session) {
       group_by(Taxa) %>%
       summarise(Total = sum(Count, na.rm = TRUE)) %>%
       mutate(Percentage = round(Total / sum(Total) * 100, 1),
-             Label = paste0(Percentage, "% ", Taxa))
+             Label = paste0(Taxa, ": ", Percentage, "%"))
     
     p <- plot_ly(plot_data, 
                  x = ~Percentage, 
@@ -597,15 +608,15 @@ server <- function(input, output, session) {
                  color = ~Taxa, 
                  colors = taxa_colors,
                  text = ~Label,
-                 hoverinfo = 'text',
+                 insidetextanchor = "middle",
+                 hoverinfo = "text",
                  showlegend = FALSE,
-                 height = 80) %>% 
+                 height = 80) %>% # Increased height slightly to accommodate legend
       layout(
         barmode = 'stack',
         xaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
         yaxis = list(title = "", showgrid = FALSE, zeroline = TRUE, showticklabels = FALSE),
-        margin = list(l = 0, r = 0, t = 0, b = 0)
-      )
+        margin = list(l = 0, r = 0, t = 0, b = 0))
     p
   })
   
