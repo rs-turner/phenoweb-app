@@ -127,7 +127,6 @@ ui <- dashboardPage(
                     column(4, selectInput("region_filter", "Region:", choices = "All")),
                     column(4, selectInput("site_filter", "Site:", choices = "All")),
                     column(4, selectInput("species_filter", "Species:", choices = "All")))),
-              box(title = NULL, width = 12, status = "info", plotlyOutput("intensity_plot", height = "100px")),
               fluidRow(
                 valueBoxOutput("nests_initiated", width = 3),
                 valueBoxOutput("avg_lay_date", width = 3),
@@ -152,6 +151,26 @@ ui <- dashboardPage(
                                                                              selected = task_levels[1:11]))),
                                          column(width = 10,
                                                 plotOutput("task_plot", height = "550px")))),
+                       tabPanel("Plots", icon = icon("chart-pie"),
+                                fluidRow(
+                                  column(width = 2,
+                                         wellPanel(class = "planner-sidebar", style = "min-height: 550px;",
+                                                   h4("Plot Settings"),
+                                                   radioButtons("plot_calc_type", "Calculation Metric:",
+                                                                choices = c("Percentage of All Boxes" = "total",
+                                                                            "Percentage of Previous Stage" = "conditional"),
+                                                                selected = "total")
+                                         )),
+                                  column(width = 10,
+                                         fluidRow(
+                                           column(6, plotlyOutput("doughnut_n1", height = "275px")),
+                                           column(6, plotlyOutput("doughnut_nl", height = "275px"))
+                                         ),
+                                         fluidRow(
+                                           column(6, plotlyOutput("doughnut_eggs", height = "275px")),
+                                           column(6, plotlyOutput("doughnut_hatch", height = "275px"))
+                                         ))
+                                )),
                        tabPanel("Find My Bird", icon = icon("search"), DTOutput("ringing_table")),
                        tabPanel("Map View", icon = icon("map-marker-alt"), leafletOutput("nest_map", height = 600))))),
       
@@ -170,7 +189,7 @@ ui <- dashboardPage(
                     column(4, selectInput("inv_host_filter", "Host Species:", choices = "All")))),
               fluidRow(
                 box(title = "", width = 12, status = "info",
-                    plotlyOutput("invert_bar", height = "80px"))),
+                    plotlyOutput("invert_bar", height = "100px"))),
               fluidRow(
                 tabBox(title = "Exploration Tools", width = 12, id = "tab_invert",
                        tabPanel("Invertebrate Abundance Plot", icon = icon("chart-bar"),
@@ -201,17 +220,18 @@ server <- function(input, output, session) {
   load_all_data <- function() {
     withProgress(message = 'Syncing Dropbox...', value = 0.5, {
       
-      south_file <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
-      north_file <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
-      inv_south_file <- str_c("Branch_Beating_", current_year, "_south.xlsx")
-      inv_north_file <- str_c("Branch_Beating_", current_year, "_north.xlsx")
+      birds_south <- str_c("Bird_Phenology_", current_year, "_south.xlsx")
+      birds_north <- str_c("Bird_Phenology_", current_year, "_north.xlsx")
+      inverts_south <- str_c("Branch_Beating_", current_year, "_south.xlsx")
+      inverts_north <- str_c("Branch_Beating_", current_year, "_north.xlsx")
+      nestlings_south <- str_c("Nestlings_", current_year, "_south.xlsx")
+      nestlings_north <- str_c("Nestlings_", current_year, "_north.xlsx")
+      adults_south <- str_c("Adults_", current_year, "_south.xlsx")
+      adults_north <- str_c("Adults_", current_year, "_north.xlsx")
       
-      nestlings_south_file <- str_c("Nestlings_", current_year, "_south.xlsx")
-      nestlings_north_file <- str_c("Nestlings_", current_year, "_north.xlsx")
+      adults_master <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
       
-      raw_adults <- read_csv(find_file_in_dropbox("Adults.csv"), show_col_types = FALSE)
-      
-      vals$adult_rings <- raw_adults %>%
+      vals$adult_rings <- adults_master %>%
         filter(!is.na(sex)) %>%
         group_by(year, site, box, sex) %>%
         summarise(Ring = paste(unique(ring), collapse = ", "), .groups = "drop") %>%
@@ -220,8 +240,8 @@ server <- function(input, output, session) {
         mutate(box = as.character(box))
       
       current <- bind_rows(
-        load_bird_data(find_file_in_dropbox(south_file), "south"),
-        load_bird_data(find_file_in_dropbox(north_file), "north")) %>%
+        load_bird_data(find_file_in_dropbox(birds_south), "south"),
+        load_bird_data(find_file_in_dropbox(birds_north), "north")) %>%
         mutate(
           Region = str_to_title(region), Site = site, Box = as.character(box), 
           Species = case_match(species, "bluti" ~ "Blue Tit", "coati" ~ "Coal Tit", "greti" ~ "Great Tit", .default = species),
@@ -232,25 +252,54 @@ server <- function(input, output, session) {
           Male = NA_character_, 
           Female = NA_character_)
       
-      vals$pulli_count <- 0
-      vals$pulli_nests <- 0
+      # Prepare 2026 Nestling Data for Ringing Table
+      nestlings_2026 <- data.frame()
+      
       tryCatch({
-        p_south <- read_excel(find_file_in_dropbox(nestlings_south_file))
-        p_north <- read_excel(find_file_in_dropbox(nestlings_north_file))
+        p_south <- read_excel(find_file_in_dropbox(nestlings_south))
+        p_north <- read_excel(find_file_in_dropbox(nestlings_north))
         combined_pulli <- bind_rows(p_south, p_north) %>%
           filter(!is.na(ring), tolower(ring) != "unringed")
         
-        vals$pulli_count <- nrow(combined_pulli)
         vals$pulli_nests <- combined_pulli %>% select(site, box) %>% distinct() %>% nrow()
+        
+        # Standardize for Ringing Table
+        nestlings_2026 <- combined_pulli %>%
+          transmute(Ring = ring, 
+                    Date = as.Date(round(v1date), origin = str_c(current_year - 1, "-12-31")),
+                    Site = site, Box = as.character(box), 
+                    Status = "Pullus", `Age Code` = "1", Sex = NA_character_, 
+                    Wing = v2wing, Weight = v2mass, Ringer = v1ringer, 
+                    Species = "Blue Tit", Fledged = if_else(fledged == 1, "Yes", "No"))
         
       }, error = function(e) {
         vals$pulli_count <- 0
         vals$pulli_nests <- 0
       })
       
+      # Prepare 2026 Adult Data for Ringing Table
+      adults_2026 <- data.frame()
+      tryCatch({
+        a_south <- read_excel(find_file_in_dropbox(adults_south))
+        a_north <- read_excel(find_file_in_dropbox(adults_north))
+        combined_adults_2026 <- bind_rows(a_south, a_north) %>%
+          filter(!is.na(ring))
+        
+        if(nrow(combined_adults_2026) > 0) {
+          adults_2026 <- combined_adults_2026 %>%
+            transmute(Ring = ring, 
+                      Date = as.Date(round(date), origin = str_c(current_year - 1, "-12-31")),
+                      Site = site, Box = as.character(box), 
+                      Status = "Adult", `Age Code` = as.character(age),
+                      Sex = case_match(sex, "M" ~ "Male", "F" ~ "Female", .default = sex), 
+                      Wing = wing, Weight = mass, Ringer = ringer, 
+                      Species = "Blue Tit", Fledged = NA_character_)
+        }
+      }, error = function(e) { NULL })
+      
       vals$invert_data <- bind_rows(
-        load_invert_data(find_file_in_dropbox(inv_south_file), "South"),
-        load_invert_data(find_file_in_dropbox(inv_north_file), "North"))
+        load_invert_data(find_file_in_dropbox(inverts_south), "South"),
+        load_invert_data(find_file_in_dropbox(inverts_north), "North"))
       
       site_region_map <- current %>% select(Site, Region) %>% distinct()
       
@@ -270,7 +319,7 @@ server <- function(input, output, session) {
       }
       
       if (is.null(vals$ringing_data)) {
-        adults <- raw_adults %>%
+        adults_hist <- adults_master %>%
           transmute(Ring = ring, Date = as.Date(round(date), origin = str_c(year - 1, "-12-31")),
                     Site = site, Box = as.character(box), 
                     Status = "Adult",
@@ -278,7 +327,7 @@ server <- function(input, output, session) {
                     Sex = case_match(sex, "M" ~ "Male", "F" ~ "Female", .default = sex), 
                     Wing = wing, Weight = mass, Ringer = ringer, Species = "Blue Tit", Fledged = NA_character_)
         
-        nestlings <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
+        nestlings_hist <- read_csv(find_file_in_dropbox("Nestlings.csv"), show_col_types = FALSE) %>%
           mutate(fledged = if_else(fledged == 1, "Yes", "No")) %>%
           filter(ring != "unringed") %>%
           transmute(Ring = ring, Date = as.Date(round(v1date), origin = str_c(year - 1, "-12-31")),
@@ -288,7 +337,8 @@ server <- function(input, output, session) {
                     Sex = NA_character_, 
                     Wing = v2wing, Weight = v2mass, Ringer = v1ringer, Species = "Blue Tit", Fledged = fledged)
         
-        vals$ringing_data <- bind_rows(adults, nestlings) %>%
+        # Combine Historic Master Data with New 2026 Live Data
+        vals$ringing_data <- bind_rows(adults_hist, nestlings_hist, nestlings_2026, adults_2026) %>%
           left_join(site_region_map, by = "Site") %>%
           mutate(Region = replace_na(Region, "Unknown")) %>%
           select(Region, Site, Box, Species, Date, Ring, Status, `Age Code`, Sex, Wing, Weight, Fledged, Ringer)
@@ -318,29 +368,81 @@ server <- function(input, output, session) {
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
   })
   
-  # Intensity Plot Data
-  intensity_data <- reactive({
+  render_doughnut <- function(value, total, label, color) {
+    if (total == 0 || is.na(total)) return(plotly_empty())
+    
+    perc <- round((value / total) * 100, 1)
+    
+    chart_value <- min(value, total)
+    chart_remaining <- max(0, total - value)
+    
+    plot_ly(labels = c(label, "Remaining"), 
+            values = c(chart_value, chart_remaining), 
+            type = 'pie', 
+            hole = 0.6,
+            marker = list(colors = c(color, "#EEEEEE")),
+            textinfo = 'none', 
+            hovertext = c(paste0(perc,"% (n = ",value,")"), paste0(100-perc,"% (n = ",chart_remaining,")")),
+            hoverinfo = 'text') %>%
+      layout(
+        title = "",
+        annotations = list(
+          list(
+            text = paste0(label, "<br><b>", perc, "%</b>"),
+            x = 0.5,
+            y = 0.5,
+            showarrow = FALSE,
+            font = list(size = 13),
+            align = "center"
+          )
+        ),
+        showlegend = FALSE,
+        margin = list(l = 10, r = 10, b = 10, t = 10)
+      ) %>%
+      config(displayModeBar = FALSE)
+  }
+  
+  output$doughnut_n1 <- renderPlotly({
     req(filtered_all())
     df <- filtered_all()
-    days <- seq(91, 183)
-    
-    map_df(days, function(d) {
-      count <- df %>%
-        filter(is.na(suc) | (as.numeric(suc) != 0)) %>%
-        mutate(
-          est_hatch = coalesce(`day hatching first observed`, fki + 14),
-          est_v1_date = coalesce(v1date, fki + 20),
-          v1_due     = (est_hatch + 6) <= d & is.na(v1alive),
-          male_due   = (est_v1_date + 4) <= d & is.na(male) & is.na(suc),
-          female_due = (est_v1_date + 4) <= d & is.na(female) & is.na(suc),
-          v2_due     = (est_v1_date + 6) <= d & is.na(v2alive) & is.na(suc)
-        ) %>%
-        summarise(total = sum(v1_due | male_due | female_due | v2_due, na.rm = TRUE)) %>%
-        pull(total)
-      
-      date_label <- format(as.Date(d - 1, origin = str_c(current_year, "-01-01")), "%d %B")
-      tibble(Day = d, Intensity = count, DateLabel = date_label)
-    })
+    n1_count <- sum(!is.na(df$n1))
+    render_doughnut(n1_count, nrow(df), "Nests Initiated", "#468FAF")
+  })
+  
+  output$doughnut_nl <- renderPlotly({
+    req(filtered_all())
+    df <- filtered_all()
+    n_n1 <- sum(!is.na(df$n1))
+    n_nl <- sum(!is.na(df$nl))
+    if (input$plot_calc_type == "total") {
+      render_doughnut(n_nl, nrow(df), "Nests Lined", "#468FAF")
+    } else {
+      render_doughnut(n_nl, n_n1, "Nests Lined", "#468FAF")
+    }
+  })
+  
+  output$doughnut_eggs <- renderPlotly({
+    req(filtered_all())
+    df <- filtered_all()
+    n_nl <- sum(!is.na(df$nl))
+    n_eggs <- sum(!is.na(df$eggsfirstrecorded))
+    if (input$plot_calc_type == "total") {
+      render_doughnut(n_eggs, nrow(df), "Nests With Eggs", "#468FAF")
+    } else {
+      render_doughnut(n_eggs, n_nl, "Nests With Eggs", "#468FAF")
+    }
+  })
+  
+  output$doughnut_hatch <- renderPlotly({
+    req(filtered_all())
+    df <- filtered_all()
+    n_eggs <- sum(!is.na(df$eggsfirstrecorded))
+    n_hatch <- sum(!is.na(df$`day hatching first observed`))
+    if (input$plot_calc_type == "total") {
+      render_doughnut(n_hatch, nrow(df), "Nests With Pulli", "#468FAF")
+    } else {
+      render_doughnut(n_hatch, n_eggs, "Nests With Pulli", "#468FAF")
+    }
   })
   
   filtered_init <- reactive({ filtered_all() %>% filter(!is.na(n1)) })
@@ -351,44 +453,6 @@ server <- function(input, output, session) {
       filter(if(input$region_filter != "All") Region == input$region_filter else TRUE) %>%
       filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
       filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
-  })
-  
-  output$intensity_plot <- renderPlotly({
-    req(intensity_data())
-    today_ordinal <- as.numeric(format(Sys.Date(), "%j"))
-    
-    plot_ly(intensity_data(), x = ~Day, y = ~Intensity) %>%
-      add_trace(
-        type = 'scatter', 
-        mode = 'lines+marker', # Keep the main trace as lines
-        fill = 'tozeroy', 
-        fillcolor = 'rgba(1, 73, 124, 0.2)',
-        line = list(color = "#01497C", width = 2),
-        hoverinfo = 'text',
-        text = ~paste("Date:", DateLabel, "<br>Estimated Intensity Metric:", Intensity)
-      ) %>%
-      layout(
-        # 'x' hovermode makes the point snap to the closest x-value (Date)
-        hovermode = 'x', 
-        xaxis = list(
-          showgrid = FALSE, 
-          zeroline = FALSE, 
-          showticklabels = FALSE, 
-          title = ""),
-        yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
-        margin = list(l = 5, r = 5, t = 5, b = 5),
-        paper_bgcolor = 'rgba(0,0,0,0)',
-        plot_bgcolor = 'rgba(0,0,0,0)',
-        shapes = list(
-          list(
-            type = "line",
-            x0 = today_ordinal, x1 = today_ordinal,
-            y0 = 0, y1 = 1, yref = "paper",
-            line = list(color = "gray", width = 1.5, dash = "dash")
-          )
-        )
-      ) %>%
-      config(displayModeBar = FALSE)
   })
   
   output$peak_season_box <- renderValueBox({
@@ -481,9 +545,25 @@ server <- function(input, output, session) {
   })
   
   output$pulli_ringed_box <- renderValueBox({
+    req(filtered_all(), vals$ringing_data)
+    
+    # Filter for Pulli, the current year, and the UI selections
+    active_pulli <- vals$ringing_data %>%
+      filter(
+        Status == "Pullus",
+        # Only include birds where the Date is within 2026
+        format(Date, "%Y") == as.character(current_year)
+      ) %>%
+      filter(if(input$region_filter != "All") Region == input$region_filter else TRUE) %>%
+      filter(if(input$site_filter != "All") Site == input$site_filter else TRUE) %>%
+      filter(if(input$species_filter != "All") Species == input$species_filter else TRUE)
+    
+    p_count <- nrow(active_pulli)
+    p_nests <- active_pulli %>% select(Site, Box) %>% distinct() %>% nrow()
+    
     valueBox(
-      vals$pulli_count, 
-      paste0(current_year, " Total Pulli Ringed (n = ", vals$pulli_nests, ")"), 
+      p_count, 
+      paste0(current_year, " Total Pulli Ringed (n = ", p_nests, " nests)"), 
       icon = icon("dove"), 
       color = "aqua"
     )
