@@ -239,7 +239,42 @@ server <- function(input, output, session) {
         rename(Male = Parent_M, Female = Parent_F) %>%
         mutate(box = as.character(box))
       
-      current <- bind_rows(
+      # Prepare 2026 Adult Data for Ringing Table and Current Season Lookups
+      adults_2026_raw <- data.frame()
+      adults_2026_lookup <- data.frame(Site = character(), Box = character(), Male = character(), Female = character())
+      
+      tryCatch({
+        a_south <- read_excel(find_file_in_dropbox(adults_south))
+        a_north <- read_excel(find_file_in_dropbox(adults_north))
+        combined_adults_2026 <- bind_rows(a_south, a_north) %>%
+          filter(!is.na(ring))
+        
+        if(nrow(combined_adults_2026) > 0) {
+          adults_2026_raw <- combined_adults_2026 %>%
+            transmute(Ring = ring, 
+                      Date = as.Date(round(date), origin = str_c(current_year - 1, "-12-31")),
+                      Site = site, Box = as.character(box), 
+                      Status = "Adult", `Age Code` = as.character(age),
+                      Sex = case_match(sex, "M" ~ "Male", "F" ~ "Female", .default = sex), 
+                      Wing = wing, Weight = mass, Ringer = ringer, 
+                      Species = "Blue Tit", Fledged = NA_character_)
+          
+          # Create current-year parent mapping lookup configuration
+          adults_2026_lookup <- combined_adults_2026 %>%
+            filter(!is.na(sex), !is.na(site), !is.na(box)) %>%
+            group_by(site, box, sex) %>%
+            summarise(Ring = paste(unique(ring), collapse = ", "), .groups = "drop") %>%
+            pivot_wider(names_from = sex, values_from = Ring, names_prefix = "Parent_") %>%
+            rename(Site = site, Box = box) %>%
+            mutate(Box = as.character(Box),
+                   Male = if("Parent_M" %in% names(.)) Parent_M else NA_character_,
+                   Female = if("Parent_F" %in% names(.)) Parent_F else NA_character_) %>%
+            select(Site, Box, Male, Female)
+        }
+      }, error = function(e) { NULL })
+      
+      # Raw Bird Phenology Processing
+      current_raw <- bind_rows(
         load_bird_data(find_file_in_dropbox(birds_south), "south"),
         load_bird_data(find_file_in_dropbox(birds_north), "north")) %>%
         mutate(
@@ -248,9 +283,16 @@ server <- function(input, output, session) {
           `Lay Date` = if_else(is.na(latest_fed), "", format(as.Date(round(latest_fed), origin = str_c(current_year - 1, "-12-31")), "%d %B %Y")),
           `Hatch Date` = if_else(is.na(`day hatching first observed`), "", format(as.Date(round(`day hatching first observed`), origin = str_c(current_year - 1, "-12-31")), "%d %B %Y")),
           `Clutch Size` = as.numeric(cs), `Brood Size` = as.numeric(v1alive), `Number Fledged` = as.numeric(suc),
-          lay_date_numeric = latest_fed,
-          Male = NA_character_, 
-          Female = NA_character_)
+          lay_date_numeric = latest_fed
+        )
+      
+      # Dynamically map Male and Female IDs from active season logs
+      current <- current_raw %>%
+        left_join(adults_2026_lookup, by = c("Site", "Box")) %>%
+        mutate(
+          Male = coalesce(Male, NA_character_),
+          Female = coalesce(Female, NA_character_)
+        )
       
       # Prepare 2026 Nestling Data for Ringing Table
       nestlings_2026 <- data.frame()
@@ -278,7 +320,7 @@ server <- function(input, output, session) {
       })
       
       # Prepare 2026 Adult Data for Ringing Table
-      adults_2026 <- data.frame()
+      adults_2026_raw <- data.frame()
       tryCatch({
         a_south <- read_excel(find_file_in_dropbox(adults_south))
         a_north <- read_excel(find_file_in_dropbox(adults_north))
@@ -485,6 +527,7 @@ server <- function(input, output, session) {
   output$task_plot <- renderPlot({
     req(filtered_all(), input$task_date, length(input$task_types) > 0)
     tasks_df <- filtered_all() %>%
+      filter(!species %in% c("greti", "coati") | is.na(species) | species == "") %>%
       mutate(
         trip_type = case_match(region,
                                "south" ~ if_else(input$task_date %% 2 == 0, "D", "A"),
