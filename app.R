@@ -564,8 +564,8 @@ server <- function(input, output, session) {
       theme(
         axis.text.x = element_text(angle = 45, hjust = 1, size = 8), 
         legend.position = "none",
-        panel.grid.major.y = element_line(color = "#f5f5f5")
-      )
+        panel.grid.major.x = element_line(color = "#e5e5e5", linewidth = 0.5),
+        panel.grid.major.y = element_line(color = "#e5e5e5", linewidth = 0.5))
   })
   
   output$nests_initiated <- renderValueBox({
